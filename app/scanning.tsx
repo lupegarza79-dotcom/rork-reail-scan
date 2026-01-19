@@ -17,7 +17,7 @@ const SCAN_STEPS = [
 
 export default function ScanningScreen() {
   const router = useRouter();
-  const { url } = useLocalSearchParams<{ url: string }>();
+  const { url, mediaUri } = useLocalSearchParams<{ url?: string; mediaUri?: string }>();
   const { t, setCurrentScan, addScan } = useApp();
   const [completedSteps, setCompletedSteps] = useState<number>(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -83,12 +83,18 @@ export default function ScanningScreen() {
 
     const totalTime = SCAN_STEPS.length * stepDuration + 500;
     setTimeout(() => {
-      const scanResult = generateMockScan(url || 'https://example.com');
+      const scanSource = url || mediaUri || 'https://example.com';
+      const scanResult = generateMockScan(scanSource);
+      if (mediaUri) {
+        scanResult.domain = 'Screenshot';
+        scanResult.platform = 'other';
+        scanResult.title = 'Uploaded screenshot';
+      }
       setCurrentScan(scanResult);
       addScan(scanResult);
       router.replace('/result');
     }, totalTime);
-  }, [url, setCurrentScan, addScan, router, progressAnim]);
+  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim]);
 
   const rotate = rotateAnim.interpolate({
     inputRange: [0, 1],

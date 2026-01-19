@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   Animated,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +21,8 @@ import {
   ChevronDown,
   ChevronUp,
   Image,
+  X,
+  Check,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -29,11 +32,21 @@ import Logo from '@/components/Logo';
 
 const REASON_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
 
+const REPORT_CATEGORIES = [
+  { key: 'scam_sale', label: 'Scam sale' },
+  { key: 'fake_identity', label: 'Fake identity' },
+  { key: 'manipulated_media', label: 'Manipulated media' },
+  { key: 'misleading_claims', label: 'Misleading claims' },
+  { key: 'other', label: 'Other' },
+];
+
 export default function ResultScreen() {
   const router = useRouter();
-  const { t, currentScan } = useApp();
+  const { t, currentScan, canReport, recordReport } = useApp();
   const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
   const [displayScore, setDisplayScore] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -110,8 +123,22 @@ export default function ResultScreen() {
   }, []);
 
   const handleReport = useCallback(() => {
-    Alert.alert('Report Submitted', 'Thank you for helping keep the internet safe.');
-  }, []);
+    if (!canReport()) {
+      Alert.alert('Rate Limit', 'You have reached the maximum number of reports for today. Please try again tomorrow.');
+      return;
+    }
+    setShowReportModal(true);
+  }, [canReport]);
+
+  const submitReport = useCallback((category: string) => {
+    recordReport();
+    setShowReportModal(false);
+    setSelectedCategory(null);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    Alert.alert('Report Submitted', `Thank you for reporting this as "${category}". This helps keep the internet safe.`);
+  }, [recordReport]);
 
   const handleShareImage = useCallback(() => {
     Alert.alert('Share as Image', 'Image sharing will be available soon.');
@@ -253,15 +280,15 @@ export default function ResultScreen() {
             })}
           </View>
 
+          <TouchableOpacity style={styles.primaryActionButton} onPress={handleShare}>
+              <Share2 size={20} color={Colors.text} />
+              <Text style={styles.primaryActionText}>{t.shareReport}</Text>
+            </TouchableOpacity>
+
           <View style={styles.actionsSection}>
             <TouchableOpacity style={styles.actionButton} onPress={handleSave}>
               <Bookmark size={20} color={Colors.text} />
               <Text style={styles.actionText}>{t.save}</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={[styles.actionButton, styles.primaryAction]} onPress={handleShare}>
-              <Share2 size={20} color={Colors.text} />
-              <Text style={styles.actionText}>{t.shareReport}</Text>
             </TouchableOpacity>
             
             <TouchableOpacity style={[styles.actionButton, styles.dangerAction]} onPress={handleReport}>
@@ -286,7 +313,60 @@ export default function ResultScreen() {
               <Text style={styles.shareImageText}>{t.shareAsImage}</Text>
             </TouchableOpacity>
           </View>
+
+          <View style={styles.disclaimerSection}>
+            <Text style={styles.disclaimerText}>{t.disclaimer}</Text>
+          </View>
         </ScrollView>
+
+        <Modal
+          visible={showReportModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowReportModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{t.reportScam}</Text>
+                <TouchableOpacity onPress={() => setShowReportModal(false)} style={styles.modalClose}>
+                  <X size={24} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalSubtitle}>{t.selectCategory}</Text>
+              {REPORT_CATEGORIES.map((cat) => (
+                <TouchableOpacity
+                  key={cat.key}
+                  style={[
+                    styles.categoryOption,
+                    selectedCategory === cat.key && styles.categoryOptionSelected,
+                  ]}
+                  onPress={() => setSelectedCategory(cat.key)}
+                >
+                  <Text style={[
+                    styles.categoryText,
+                    selectedCategory === cat.key && styles.categoryTextSelected,
+                  ]}>
+                    {cat.label}
+                  </Text>
+                  {selectedCategory === cat.key && (
+                    <Check size={18} color={Colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[
+                  styles.submitReportButton,
+                  !selectedCategory && styles.submitReportButtonDisabled,
+                ]}
+                onPress={() => selectedCategory && submitReport(selectedCategory)}
+                disabled={!selectedCategory}
+              >
+                <Text style={styles.submitReportText}>{t.submitReport}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -560,6 +640,107 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.primary,
+  },
+  primaryActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 12,
+  },
+  primaryActionText: {
+    fontSize: 15,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  disclaimerSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  disclaimerText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  modalClose: {
+    padding: 4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+  },
+  categoryOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  categoryOptionSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '15',
+  },
+  categoryText: {
+    fontSize: 14,
+    color: Colors.text,
+  },
+  categoryTextSelected: {
+    fontWeight: '600' as const,
+  },
+  submitReportButton: {
+    backgroundColor: Colors.highRisk,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  submitReportButtonDisabled: {
+    opacity: 0.5,
+  },
+  submitReportText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.text,
   },
   emptyState: {
     flex: 1,

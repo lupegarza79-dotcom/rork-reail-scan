@@ -66,6 +66,13 @@ export const translations = {
     whatWouldVerify: 'What would verify this?',
     noScansYet: 'No scans yet',
     startScanning: 'Paste a link to start scanning',
+    disclaimer: 'Risk-based verification using public signals + automated analysis. Not absolute truth.',
+    selectCategory: 'Select a category for your report:',
+    submitReport: 'SUBMIT REPORT',
+    faqPhoneHacked: 'Can REAiL detect if my phone is hacked?',
+    faqPhoneHackedAnswer: 'No. REAiL analyzes the content and link signals you submit. We do not inspect your device.',
+    rateLimitScans: 'You have reached the scan limit. Please try again later.',
+    rateLimitReports: 'You have reached the report limit for today.',
   },
   es: {
     scan: 'Escanear',
@@ -134,6 +141,13 @@ export const translations = {
     whatWouldVerify: '¿Qué verificaría esto?',
     noScansYet: 'Sin escaneos aún',
     startScanning: 'Pega un link para comenzar',
+    disclaimer: 'Verificación basada en riesgo usando señales públicas + análisis automatizado. No es verdad absoluta.',
+    selectCategory: 'Selecciona una categoría para tu reporte:',
+    submitReport: 'ENVIAR REPORTE',
+    faqPhoneHacked: '¿Puede REAiL detectar si mi teléfono está hackeado?',
+    faqPhoneHackedAnswer: 'No. REAiL analiza el contenido y las señales del enlace que envías. No inspeccionamos tu dispositivo.',
+    rateLimitScans: 'Has alcanzado el límite de escaneos. Intenta más tarde.',
+    rateLimitReports: 'Has alcanzado el límite de reportes por hoy.',
   },
 };
 

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,9 @@ import {
   HelpCircle, 
   FileText,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -34,6 +37,7 @@ const AUTO_DELETE_OPTIONS = [
 export default function SettingsScreen() {
   const router = useRouter();
   const { t, settings, updateSettings } = useApp();
+  const [faqExpanded, setFaqExpanded] = useState(false);
 
   const handleBack = useCallback(() => {
     router.back();
@@ -231,6 +235,39 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>FAQ</Text>
+            
+            <TouchableOpacity 
+              style={styles.faqRow} 
+              onPress={() => setFaqExpanded(!faqExpanded)}
+            >
+              <View style={styles.settingLeft}>
+                <View style={styles.settingIcon}>
+                  <Smartphone size={20} color={Colors.accent} />
+                </View>
+                <Text style={styles.settingLabel}>{t.faqPhoneHacked}</Text>
+              </View>
+              {faqExpanded ? (
+                <ChevronUp size={20} color={Colors.textTertiary} />
+              ) : (
+                <ChevronDown size={20} color={Colors.textTertiary} />
+              )}
+            </TouchableOpacity>
+            {faqExpanded && (
+              <View style={styles.faqAnswer}>
+                <Text style={styles.faqAnswerText}>{t.faqPhoneHackedAnswer}</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.disclaimerSection}>
+            <Text style={styles.disclaimerTitle}>Disclaimer</Text>
+            <Text style={styles.disclaimerText}>
+              REAiL provides risk-based signals using public information and automated analysis. It does not claim absolute truth.
+            </Text>
+          </View>
+
           <Text style={styles.versionText}>REAiL Scan v1.0.0</Text>
         </ScrollView>
       </SafeAreaView>
@@ -376,5 +413,45 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textAlign: 'center',
     marginTop: 20,
+  },
+  faqRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  faqAnswer: {
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+  },
+  faqAnswerText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  disclaimerSection: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  disclaimerTitle: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  disclaimerText: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    lineHeight: 18,
   },
 });
