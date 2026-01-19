@@ -1,5 +1,6 @@
 import { ScanResult, BadgeType, ScanReasons } from '@/types/scan';
 import { generateMockScan } from './mockScan';
+import { aiScanEngine } from './aiScanEngine';
 
 const API_BASE_URL = 'https://api.reail.app';
 const API_TIMEOUT = 15000;
@@ -39,10 +40,21 @@ interface ApiScanResponse {
 }
 
 class ScanService {
-  private useMock = true;
+  private useMock = false;
+  private useAI = true;
 
   async scanUrl(request: ScanUrlRequest): Promise<ScanResult> {
     console.log('[ScanService] Scanning URL:', request.url);
+    
+    if (this.useAI) {
+      console.log('[ScanService] Using AI scan engine');
+      try {
+        return await aiScanEngine.analyzeUrl(request.url);
+      } catch (error) {
+        console.log('[ScanService] AI scan failed, falling back to mock:', error);
+        return this.mockScan(request.url);
+      }
+    }
     
     if (this.useMock) {
       console.log('[ScanService] Using mock scan engine');
@@ -73,6 +85,20 @@ class ScanService {
 
   async scanMedia(request: ScanMediaRequest): Promise<ScanResult> {
     console.log('[ScanService] Scanning media:', request.mediaUri);
+    
+    if (this.useAI) {
+      console.log('[ScanService] Using AI scan engine for media');
+      try {
+        return await aiScanEngine.analyzeImage(request.mediaUri);
+      } catch (error) {
+        console.log('[ScanService] AI media scan failed, falling back to mock:', error);
+        const result = this.mockScan('screenshot://uploaded');
+        result.domain = 'Screenshot';
+        result.platform = 'other';
+        result.title = 'Uploaded screenshot';
+        return result;
+      }
+    }
     
     if (this.useMock) {
       console.log('[ScanService] Using mock scan engine for media');

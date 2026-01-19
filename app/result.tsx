@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Share,
   Alert,
   Platform,
   Animated,
@@ -15,6 +14,8 @@ import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { BlurView } from 'expo-blur';
 import { 
   ArrowLeft, 
   Share2, 
@@ -25,6 +26,8 @@ import {
   Image,
   X,
   Check,
+  ExternalLink,
+  Sparkles,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -32,6 +35,9 @@ import { useApp } from '@/contexts/AppContext';
 import Badge from '@/components/Badge';
 import Logo from '@/components/Logo';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { shareResult } from '@/utils/deepLinking';
+import { openScannedLink } from '@/utils/browser';
+import { maybeRequestReviewAfterScan } from '@/utils/storeReview';
 
 const REASON_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
 const SCORE_ANIMATION_DURATION = 800;
@@ -46,7 +52,7 @@ const REPORT_CATEGORIES = [
 
 export default function ResultScreen() {
   const router = useRouter();
-  const { t, currentScan, canReport, recordReport } = useApp();
+  const { t, currentScan, canReport, recordReport, settings } = useApp();
   const reduceMotion = useReduceMotion();
   const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
   const [displayScore, setDisplayScore] = useState(0);
@@ -95,6 +101,8 @@ export default function ResultScreen() {
       };
       
       requestAnimationFrame(animateScore);
+      
+      maybeRequestReviewAfterScan(currentScan.badge);
     }
   }, [currentScan, fadeAnim, slideAnim, reduceMotion]);
 
@@ -120,13 +128,19 @@ export default function ResultScreen() {
   const handleShare = useCallback(async () => {
     if (!currentScan) return;
     try {
-      const badgeText = currentScan.badge === 'VERIFIED' ? '✅' : currentScan.badge === 'UNVERIFIED' ? '⚠️' : '❌';
-      const message = `${badgeText} REAiL Scan Result\n\nDomain: ${currentScan.domain}\nTrust Score: ${currentScan.score}/100\nStatus: ${currentScan.badge}\n\n${t.verifiedBy}\n\nScan any link at reail.app`;
-      await Share.share({ message });
+      await shareResult(currentScan, settings?.language || 'en');
     } catch (error) {
       console.log('Share error:', error);
     }
-  }, [currentScan, t]);
+  }, [currentScan, settings]);
+
+  const handleOpenLink = useCallback(async () => {
+    if (!currentScan || currentScan.url.startsWith('screenshot://')) return;
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    await openScannedLink(currentScan.url);
+  }, [currentScan]);
 
   const handleSave = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -271,8 +285,20 @@ export default function ResultScreen() {
               </View>
             </View>
 
-            <Text style={styles.domain}>{currentScan.domain}</Text>
+            <View style={styles.domainRow}>
+              <Text style={styles.domain}>{currentScan.domain}</Text>
+              {currentScan.url && !currentScan.url.startsWith('screenshot://') && (
+                <TouchableOpacity onPress={handleOpenLink} style={styles.openLinkButton}>
+                  <ExternalLink size={16} color={Colors.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.verdict}>{getVerdict()}</Text>
+            
+            <View style={styles.aiPoweredBadge}>
+              <Sparkles size={12} color={Colors.accent} />
+              <Text style={styles.aiPoweredText}>AI-Powered Analysis</Text>
+            </View>
           </Animated.View>
 
           <View style={styles.reasonsSection}>
@@ -376,7 +402,7 @@ export default function ResultScreen() {
           animationType="fade"
           onRequestClose={() => setShowReportModal(false)}
         >
-          <View style={styles.modalOverlay}>
+          <BlurView intensity={Platform.OS === 'ios' ? 50 : 0} tint="dark" style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{t.reportScam}</Text>
@@ -416,7 +442,7 @@ export default function ResultScreen() {
                 <Text style={styles.submitReportText}>{t.submitReport}</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </BlurView>
         </Modal>
       </SafeAreaView>
     </View>
@@ -502,11 +528,38 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
   },
+  domainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
   domain: {
     fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.text,
-    marginBottom: 8,
+  },
+  openLinkButton: {
+    padding: 4,
+  },
+  aiPoweredBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: Colors.accent + '15',
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  aiPoweredText: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    color: Colors.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   verdict: {
     fontSize: 14,

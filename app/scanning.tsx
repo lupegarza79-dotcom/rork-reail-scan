@@ -3,12 +3,14 @@ import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Check, Shield } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Check, Shield, Wifi, WifiOff } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
-import { generateMockScan } from '@/utils/mockScan';
+import { scanService } from '@/utils/scanService';
 import Logo from '@/components/Logo';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useNetwork } from '@/hooks/useNetwork';
 
 const SCAN_STEPS = [
   { key: 'media', labelKey: 'checkMedia' as const },
@@ -26,7 +28,10 @@ export default function ScanningScreen() {
   const { url, mediaUri } = useLocalSearchParams<{ url?: string; mediaUri?: string }>();
   const { t, setCurrentScan, addScan, recordScan } = useApp();
   const reduceMotion = useReduceMotion();
+  const { isConnected } = useNetwork();
   const [completedSteps, setCompletedSteps] = useState<number>(0);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [, setIsScanning] = useState(true);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const glowAnim = useRef(new Animated.Value(0.35)).current;
@@ -88,49 +93,70 @@ export default function ScanningScreen() {
   }, [pulseAnim, glowAnim, rotateAnim, reduceMotion]);
 
   useEffect(() => {
-    const timeouts: ReturnType<typeof setTimeout>[] = [];
-    
-    SCAN_STEPS.forEach((_, index) => {
-      const timeout = setTimeout(() => {
-        setCompletedSteps(index + 1);
-        if (!reduceMotion) {
-          Animated.timing(progressAnim, {
-            toValue: (index + 1) / SCAN_STEPS.length,
-            duration: 300,
-            useNativeDriver: false,
-          }).start();
+    const performScan = async () => {
+      const timeouts: ReturnType<typeof setTimeout>[] = [];
+      
+      SCAN_STEPS.forEach((_, index) => {
+        const timeout = setTimeout(() => {
+          setCompletedSteps(index + 1);
+          if (!reduceMotion) {
+            Animated.timing(progressAnim, {
+              toValue: (index + 1) / SCAN_STEPS.length,
+              duration: 300,
+              useNativeDriver: false,
+            }).start();
+          } else {
+            progressAnim.setValue((index + 1) / SCAN_STEPS.length);
+          }
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        }, (index + 1) * STEP_DURATION);
+        timeouts.push(timeout);
+      });
+
+      try {
+        console.log('[ScanningScreen] Starting AI-powered scan...');
+        
+        let scanResult;
+        if (mediaUri) {
+          console.log('[ScanningScreen] Scanning media:', mediaUri);
+          scanResult = await scanService.scanMedia({ mediaUri });
+        } else if (url) {
+          console.log('[ScanningScreen] Scanning URL:', url);
+          scanResult = await scanService.scanUrl({ url });
         } else {
-          progressAnim.setValue((index + 1) / SCAN_STEPS.length);
+          throw new Error('No URL or media provided');
         }
+        
+        const minWaitTime = SCAN_STEPS.length * STEP_DURATION + 500;
+        await new Promise(resolve => setTimeout(resolve, minWaitTime));
+        
+        recordScan();
+        setCurrentScan(scanResult);
+        addScan(scanResult);
+        
         if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
-      }, (index + 1) * STEP_DURATION);
-      timeouts.push(timeout);
-    });
-
-    const totalTime = SCAN_STEPS.length * STEP_DURATION + 500;
-    const completeTimeout = setTimeout(() => {
-      const scanSource = url || mediaUri || 'https://example.com';
-      const scanResult = generateMockScan(scanSource);
-      if (mediaUri) {
-        scanResult.domain = 'Screenshot';
-        scanResult.platform = 'other';
-        scanResult.title = 'Uploaded screenshot';
+        
+        console.log('[ScanningScreen] Scan complete:', scanResult.badge, scanResult.score);
+        router.replace('/result');
+      } catch (error) {
+        console.error('[ScanningScreen] Scan error:', error);
+        setScanError('Scan failed. Please try again.');
+        setIsScanning(false);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
       }
-      recordScan();
-      setCurrentScan(scanResult);
-      addScan(scanResult);
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      router.replace('/result');
-    }, totalTime);
-    timeouts.push(completeTimeout);
-
-    return () => {
-      timeouts.forEach(clearTimeout);
+      
+      return () => {
+        timeouts.forEach(clearTimeout);
+      };
     };
+    
+    performScan();
   }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim, reduceMotion, recordScan]);
 
   const rotate = rotateAnim.interpolate({
@@ -143,10 +169,45 @@ export default function ScanningScreen() {
     outputRange: ['0%', '100%'],
   });
 
+  if (scanError) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={[Colors.background, Colors.backgroundSecondary, Colors.background]}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.errorContent}>
+            <WifiOff size={48} color={Colors.highRisk} />
+            <Text style={styles.errorTitle}>{scanError}</Text>
+            <Text style={styles.errorSubtext}>
+              {!isConnected ? 'Check your internet connection' : 'Please try again'}
+            </Text>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={[Colors.background, Colors.backgroundSecondary, Colors.background]}
+        style={StyleSheet.absoluteFill}
+      />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
+          <View style={styles.networkStatus}>
+            {isConnected ? (
+              <Wifi size={16} color={Colors.verified} />
+            ) : (
+              <WifiOff size={16} color={Colors.highRisk} />
+            )}
+            <Text style={[styles.networkText, !isConnected && styles.networkTextOffline]}>
+              {isConnected ? 'AI Engine Connected' : 'Offline Mode'}
+            </Text>
+          </View>
+          
           <Logo size="medium" showSubtext />
 
           <View style={styles.loaderContainer}>
@@ -233,6 +294,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  errorContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 16,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600' as const,
+    color: Colors.highRisk,
+    textAlign: 'center',
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  networkStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  networkText: {
+    fontSize: 12,
+    fontWeight: '500' as const,
+    color: Colors.verified,
+  },
+  networkTextOffline: {
+    color: Colors.highRisk,
   },
   loaderContainer: {
     marginTop: 48,
