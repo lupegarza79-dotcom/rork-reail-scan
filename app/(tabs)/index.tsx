@@ -68,7 +68,7 @@ function AnimatedButton({ onPress, style, children }: AnimatedButtonProps) {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { t, getLastScan, setCurrentScan } = useApp();
+  const { t, getLastScan, setCurrentScan, canScan } = useApp();
   const [linkInput, setLinkInput] = useState('');
   const lastScan = getLastScan();
 
@@ -91,11 +91,15 @@ export default function HomeScreen() {
       Alert.alert('Enter a link', 'Please paste a link to scan.');
       return;
     }
+    if (!canScan()) {
+      Alert.alert('Rate Limit', t.rateLimitScans || 'You have reached the scan limit. Please try again later.');
+      return;
+    }
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     router.push({ pathname: '/scanning', params: { url: linkInput.trim() } });
-  }, [linkInput, router]);
+  }, [linkInput, router, canScan, t]);
 
   const handleShareToScan = useCallback(() => {
     router.push('/share-tutorial');
@@ -117,6 +121,10 @@ export default function HomeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
+        if (!canScan()) {
+          Alert.alert('Rate Limit', t.rateLimitScans || 'You have reached the scan limit. Please try again later.');
+          return;
+        }
         if (Platform.OS !== 'web') {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         }
@@ -126,7 +134,7 @@ export default function HomeScreen() {
       console.log('Image picker error:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
-  }, [router]);
+  }, [router, canScan, t]);
 
   const handlePlatformChip = useCallback((platform: string) => {
     const sampleUrls: Record<string, string> = {

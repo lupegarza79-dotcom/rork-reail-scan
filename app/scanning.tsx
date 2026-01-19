@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check, Shield } from 'lucide-react-native';
@@ -7,6 +8,7 @@ import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import { generateMockScan } from '@/utils/mockScan';
 import Logo from '@/components/Logo';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 const SCAN_STEPS = [
   { key: 'media', labelKey: 'checkMedia' as const },
@@ -15,74 +17,100 @@ const SCAN_STEPS = [
   { key: 'link', labelKey: 'checkLink' as const },
 ];
 
+const PULSE_DURATION = 1600;
+const ROTATION_DURATION = 3000;
+const STEP_DURATION = 800;
+
 export default function ScanningScreen() {
   const router = useRouter();
   const { url, mediaUri } = useLocalSearchParams<{ url?: string; mediaUri?: string }>();
-  const { t, setCurrentScan, addScan } = useApp();
+  const { t, setCurrentScan, addScan, recordScan } = useApp();
+  const reduceMotion = useReduceMotion();
   const [completedSteps, setCompletedSteps] = useState<number>(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0.3)).current;
+  const glowAnim = useRef(new Animated.Value(0.35)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.loop(
+    if (reduceMotion) {
+      pulseAnim.setValue(1);
+      glowAnim.setValue(0.5);
+      return;
+    }
+
+    const pulseAnimation = Animated.loop(
       Animated.parallel([
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 1000,
+            toValue: 1.12,
+            duration: PULSE_DURATION / 2,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 1000,
+            duration: PULSE_DURATION / 2,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
         ]),
         Animated.sequence([
           Animated.timing(glowAnim, {
-            toValue: 0.8,
-            duration: 1000,
+            toValue: 0.6,
+            duration: PULSE_DURATION / 2,
             useNativeDriver: true,
           }),
           Animated.timing(glowAnim, {
-            toValue: 0.3,
-            duration: 1000,
+            toValue: 0.35,
+            duration: PULSE_DURATION / 2,
             useNativeDriver: true,
           }),
         ]),
       ])
-    ).start();
+    );
+    pulseAnimation.start();
 
-    Animated.loop(
+    const rotateAnimation = Animated.loop(
       Animated.timing(rotateAnim, {
         toValue: 1,
-        duration: 3000,
+        duration: ROTATION_DURATION,
         easing: Easing.linear,
         useNativeDriver: true,
       })
-    ).start();
-  }, [pulseAnim, glowAnim, rotateAnim]);
+    );
+    rotateAnimation.start();
+
+    return () => {
+      pulseAnimation.stop();
+      rotateAnimation.stop();
+    };
+  }, [pulseAnim, glowAnim, rotateAnim, reduceMotion]);
 
   useEffect(() => {
-    const stepDuration = 800;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
     
     SCAN_STEPS.forEach((_, index) => {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         setCompletedSteps(index + 1);
-        Animated.timing(progressAnim, {
-          toValue: (index + 1) / SCAN_STEPS.length,
-          duration: 300,
-          useNativeDriver: false,
-        }).start();
-      }, (index + 1) * stepDuration);
+        if (!reduceMotion) {
+          Animated.timing(progressAnim, {
+            toValue: (index + 1) / SCAN_STEPS.length,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
+        } else {
+          progressAnim.setValue((index + 1) / SCAN_STEPS.length);
+        }
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+      }, (index + 1) * STEP_DURATION);
+      timeouts.push(timeout);
     });
 
-    const totalTime = SCAN_STEPS.length * stepDuration + 500;
-    setTimeout(() => {
+    const totalTime = SCAN_STEPS.length * STEP_DURATION + 500;
+    const completeTimeout = setTimeout(() => {
       const scanSource = url || mediaUri || 'https://example.com';
       const scanResult = generateMockScan(scanSource);
       if (mediaUri) {
@@ -90,11 +118,20 @@ export default function ScanningScreen() {
         scanResult.platform = 'other';
         scanResult.title = 'Uploaded screenshot';
       }
+      recordScan();
       setCurrentScan(scanResult);
       addScan(scanResult);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
       router.replace('/result');
     }, totalTime);
-  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim]);
+    timeouts.push(completeTimeout);
+
+    return () => {
+      timeouts.forEach(clearTimeout);
+    };
+  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim, reduceMotion, recordScan]);
 
   const rotate = rotateAnim.interpolate({
     inputRange: [0, 1],

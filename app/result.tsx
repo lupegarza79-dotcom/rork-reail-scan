@@ -11,6 +11,8 @@ import {
   Animated,
   Modal,
 } from 'react-native';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -29,8 +31,10 @@ import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import Badge from '@/components/Badge';
 import Logo from '@/components/Logo';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 const REASON_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
+const SCORE_ANIMATION_DURATION = 800;
 
 const REPORT_CATEGORIES = [
   { key: 'scam_sale', label: 'Scam sale' },
@@ -43,15 +47,25 @@ const REPORT_CATEGORIES = [
 export default function ResultScreen() {
   const router = useRouter();
   const { t, currentScan, canReport, recordReport } = useApp();
+  const reduceMotion = useReduceMotion();
   const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
   const [displayScore, setDisplayScore] = useState(0);
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
+  const shareCardRef = useRef<View>(null);
 
   useEffect(() => {
     if (currentScan) {
+      if (reduceMotion) {
+        fadeAnim.setValue(1);
+        slideAnim.setValue(0);
+        setDisplayScore(currentScan.score);
+        return;
+      }
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -65,13 +79,12 @@ export default function ResultScreen() {
         }),
       ]).start();
 
-      const duration = 1500;
       const startTime = Date.now();
       const targetScore = currentScan.score;
       
       const animateScore = () => {
         const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        const progress = Math.min(elapsed / SCORE_ANIMATION_DURATION, 1);
         const eased = 1 - Math.pow(1 - progress, 3);
         const current = Math.round(eased * targetScore);
         setDisplayScore(current);
@@ -83,7 +96,7 @@ export default function ResultScreen() {
       
       requestAnimationFrame(animateScore);
     }
-  }, [currentScan, fadeAnim, slideAnim]);
+  }, [currentScan, fadeAnim, slideAnim, reduceMotion]);
 
   const toggleReason = useCallback((key: string) => {
     setExpandedReasons(prev => {
@@ -140,9 +153,41 @@ export default function ResultScreen() {
     Alert.alert('Report Submitted', `Thank you for reporting this as "${category}". This helps keep the internet safe.`);
   }, [recordReport]);
 
-  const handleShareImage = useCallback(() => {
-    Alert.alert('Share as Image', 'Image sharing will be available soon.');
-  }, []);
+  const handleShareImage = useCallback(async () => {
+    if (!currentScan || !shareCardRef.current) return;
+    
+    if (Platform.OS === 'web') {
+      Alert.alert('Share as Image', 'Image sharing is not available on web. Use the Share Report button instead.');
+      return;
+    }
+
+    try {
+      setIsCapturing(true);
+      
+      const uri = await captureRef(shareCardRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'image/png',
+          dialogTitle: 'Share REAiL Scan Result',
+        });
+      } else {
+        Alert.alert('Sharing not available', 'Sharing is not available on this device.');
+      }
+    } catch (error) {
+      console.log('Share image error:', error);
+      Alert.alert('Error', 'Failed to capture image. Please try again.');
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [currentScan]);
 
   if (!currentScan) {
     return (
@@ -308,9 +353,15 @@ export default function ResultScreen() {
               <Text style={styles.shareCardFooter}>{t.verifiedBy}</Text>
             </View>
             
-            <TouchableOpacity style={styles.shareImageButton} onPress={handleShareImage}>
-              <Image size={18} color={Colors.primary} />
-              <Text style={styles.shareImageText}>{t.shareAsImage}</Text>
+            <TouchableOpacity 
+              style={[styles.shareImageButton, isCapturing && styles.shareImageButtonDisabled]} 
+              onPress={handleShareImage}
+              disabled={isCapturing}
+            >
+              <Image size={18} color={isCapturing ? Colors.textTertiary : Colors.primary} />
+              <Text style={[styles.shareImageText, isCapturing && styles.shareImageTextDisabled]}>
+                {isCapturing ? 'Capturing...' : t.shareAsImage}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -640,6 +691,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.primary,
+  },
+  shareImageButtonDisabled: {
+    opacity: 0.6,
+  },
+  shareImageTextDisabled: {
+    color: Colors.textTertiary,
   },
   primaryActionButton: {
     flexDirection: 'row',
