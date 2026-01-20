@@ -3,18 +3,15 @@ import { router } from 'expo-router';
 function extractUrlFromText(text: string): string | null {
   const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
   const matches = text.match(urlRegex);
-  return matches ? matches[0] : null;
+  return matches && matches.length > 0 ? matches[0] : null;
 }
 
 function extractScanIdFromPath(path: string): string | null {
-  const resultMatch = path.match(/\/result\/([a-zA-Z0-9_-]+)/);
+  const resultMatch = path.match(/result\/([a-zA-Z0-9_-]+)/);
   if (resultMatch) return resultMatch[1];
   
-  const scanMatch = path.match(/\/scan\/([a-zA-Z0-9_-]+)/);
+  const scanMatch = path.match(/scan\/([a-zA-Z0-9_-]+)/);
   if (scanMatch) return scanMatch[1];
-  
-  const queryMatch = path.match(/[?&]scanId=([a-zA-Z0-9_-]+)/);
-  if (queryMatch) return queryMatch[1];
   
   return null;
 }
@@ -22,31 +19,29 @@ function extractScanIdFromPath(path: string): string | null {
 export function redirectSystemPath({
   path,
   initial,
-}: { path: string; initial: boolean }): string {
+}: { path: string; initial: boolean }) {
   console.log('[NativeIntent] Received path:', path, 'initial:', initial);
   
-  if (!path || path === '/') {
-    return '/';
-  }
-
   const scanId = extractScanIdFromPath(path);
   if (scanId) {
-    console.log('[NativeIntent] Found scanId, redirecting to result:', scanId);
-    setTimeout(() => {
-      router.push({ pathname: '/result', params: { scanId } });
-    }, 100);
-    return '/';
+    console.log('[NativeIntent] Found scanId:', scanId);
+    return `/result?scanId=${scanId}`;
   }
-
-  const sharedUrl = extractUrlFromText(path);
-  if (sharedUrl) {
-    console.log('[NativeIntent] Share-to-Scan detected, URL:', sharedUrl);
-    setTimeout(() => {
-      router.push({ pathname: '/scanning', params: { url: sharedUrl } });
-    }, 100);
-    return '/';
+  
+  const extractedUrl = extractUrlFromText(path);
+  if (extractedUrl) {
+    console.log('[NativeIntent] Extracted URL for scan:', extractedUrl);
+    return `/scanning?url=${encodeURIComponent(extractedUrl)}`;
   }
-
-  console.log('[NativeIntent] No special handling, returning to home');
+  
+  if (path.includes('http://') || path.includes('https://')) {
+    const urlMatch = path.match(/(https?:\/\/[^\s]+)/);
+    if (urlMatch) {
+      console.log('[NativeIntent] Found URL in path:', urlMatch[1]);
+      return `/scanning?url=${encodeURIComponent(urlMatch[1])}`;
+    }
+  }
+  
+  console.log('[NativeIntent] No actionable content, going to home');
   return '/';
 }
