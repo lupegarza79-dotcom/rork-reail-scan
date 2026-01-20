@@ -4,7 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Shield, Wifi, WifiOff } from 'lucide-react-native';
+import { Check, Shield, Wifi, WifiOff, Sparkles, AlertCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import { scanService } from '@/utils/scanService';
@@ -29,6 +29,7 @@ export default function ScanningScreen() {
   const { t, setCurrentScan, addScan, recordScan } = useApp();
   const reduceMotion = useReduceMotion();
   const { isConnected } = useNetwork();
+  const [aiStatus, setAiStatus] = useState<'ready' | 'fallback' | 'offline'>('ready');
   const [completedSteps, setCompletedSteps] = useState<number>(0);
   const [scanError, setScanError] = useState<string | null>(null);
   const [, setIsScanning] = useState(true);
@@ -117,6 +118,7 @@ export default function ScanningScreen() {
 
       try {
         console.log('[ScanningScreen] Starting AI-powered scan...');
+        setAiStatus(isConnected ? 'ready' : 'offline');
         
         let scanResult;
         if (mediaUri) {
@@ -141,9 +143,11 @@ export default function ScanningScreen() {
         }
         
         console.log('[ScanningScreen] Scan complete:', scanResult.badge, scanResult.score);
+        setAiStatus('ready');
         router.replace('/result');
       } catch (error) {
         console.error('[ScanningScreen] Scan error:', error);
+        setAiStatus('fallback');
         setScanError('Scan failed. Please try again.');
         setIsScanning(false);
         if (Platform.OS !== 'web') {
@@ -157,7 +161,7 @@ export default function ScanningScreen() {
     };
     
     performScan();
-  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim, reduceMotion, recordScan]);
+  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim, reduceMotion, recordScan, isConnected]);
 
   const rotate = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -198,14 +202,27 @@ export default function ScanningScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           <View style={styles.networkStatus}>
-            {isConnected ? (
-              <Wifi size={16} color={Colors.verified} />
+            {aiStatus === 'ready' && isConnected ? (
+              <>
+                <Sparkles size={14} color={Colors.accent} />
+                <Text style={styles.networkTextAi}>AI Ready</Text>
+              </>
+            ) : aiStatus === 'fallback' ? (
+              <>
+                <AlertCircle size={14} color={Colors.unverified} />
+                <Text style={styles.networkTextFallback}>AI Fallback</Text>
+              </>
+            ) : isConnected ? (
+              <>
+                <Wifi size={14} color={Colors.verified} />
+                <Text style={styles.networkText}>Online</Text>
+              </>
             ) : (
-              <WifiOff size={16} color={Colors.highRisk} />
+              <>
+                <WifiOff size={14} color={Colors.highRisk} />
+                <Text style={styles.networkTextOffline}>Offline</Text>
+              </>
             )}
-            <Text style={[styles.networkText, !isConnected && styles.networkTextOffline]}>
-              {isConnected ? 'Online' : 'Offline'}
-            </Text>
           </View>
           
           <Logo size="medium" showSubtext />
@@ -327,6 +344,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500' as const,
     color: Colors.verified,
+  },
+  networkTextAi: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: Colors.accent,
+  },
+  networkTextFallback: {
+    fontSize: 12,
+    fontWeight: '500' as const,
+    color: Colors.unverified,
   },
   networkTextOffline: {
     color: Colors.highRisk,

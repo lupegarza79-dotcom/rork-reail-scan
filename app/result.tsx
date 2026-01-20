@@ -299,6 +299,10 @@ export default function ResultScreen() {
               <Sparkles size={12} color={Colors.accent} />
               <Text style={styles.aiPoweredText}>AI-Powered Analysis</Text>
             </View>
+
+            <View style={styles.legalMicrocopyContainer}>
+              <Text style={styles.legalMicrocopyText}>{t.disclaimer}</Text>
+            </View>
           </Animated.View>
 
           <View style={styles.reasonsSection}>
@@ -560,6 +564,22 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  legalMicrocopyContainer: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: Colors.backgroundTertiary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  legalMicrocopyText: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    textAlign: 'center',
+    lineHeight: 14,
+    fontStyle: 'italic' as const,
   },
   verdict: {
     fontSize: 14,
