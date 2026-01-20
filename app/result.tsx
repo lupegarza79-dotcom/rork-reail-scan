@@ -28,6 +28,7 @@ import {
   Check,
   ExternalLink,
   Sparkles,
+  Info,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -59,6 +60,7 @@ export default function ResultScreen() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const shareCardRef = useRef<View>(null);
@@ -300,9 +302,14 @@ export default function ResultScreen() {
               <Text style={styles.aiPoweredText}>AI-Powered Analysis</Text>
             </View>
 
-            <View style={styles.legalMicrocopyContainer}>
-              <Text style={styles.legalMicrocopyText}>{t.disclaimer}</Text>
-            </View>
+            <TouchableOpacity 
+              style={styles.disclaimerBadge} 
+              onPress={() => setShowDisclaimerModal(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.disclaimerBadgeText}>{t.disclaimerShort}</Text>
+              <Info size={12} color={Colors.textTertiary} />
+            </TouchableOpacity>
           </Animated.View>
 
           <View style={styles.reasonsSection}>
@@ -373,7 +380,7 @@ export default function ResultScreen() {
           </View>
 
           <View style={styles.shareCardSection}>
-            <View style={styles.shareCard}>
+            <View ref={shareCardRef} style={styles.shareCard} collapsable={false}>
               <View style={styles.shareCardHeader}>
                 <Logo size="small" />
                 <Badge type={currentScan.badge} size="small" />
@@ -381,6 +388,7 @@ export default function ResultScreen() {
               <Text style={styles.shareCardDomain}>{currentScan.domain}</Text>
               <Text style={styles.shareCardScore}>Score: {currentScan.score}/100</Text>
               <Text style={styles.shareCardFooter}>{t.verifiedBy}</Text>
+              <Text style={styles.shareCardLegalFooter}>{t.shareCardFooter}</Text>
             </View>
             
             <TouchableOpacity 
@@ -399,6 +407,31 @@ export default function ResultScreen() {
             <Text style={styles.disclaimerText}>{t.disclaimer}</Text>
           </View>
         </ScrollView>
+
+        <Modal
+          visible={showDisclaimerModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDisclaimerModal(false)}
+        >
+          <BlurView intensity={Platform.OS === 'ios' ? 50 : 0} tint="dark" style={styles.modalOverlay}>
+            <View style={styles.disclaimerModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{t.disclaimerShort}</Text>
+                <TouchableOpacity onPress={() => setShowDisclaimerModal(false)} style={styles.modalClose}>
+                  <X size={24} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.disclaimerModalText}>{t.disclaimerFull}</Text>
+              <TouchableOpacity
+                style={styles.disclaimerModalButton}
+                onPress={() => setShowDisclaimerModal(false)}
+              >
+                <Text style={styles.disclaimerModalButtonText}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </Modal>
 
         <Modal
           visible={showReportModal}
@@ -565,21 +598,45 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  legalMicrocopyContainer: {
-    marginTop: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+  disclaimerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
     backgroundColor: Colors.backgroundTertiary,
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
-  legalMicrocopyText: {
+  disclaimerBadgeText: {
     fontSize: 10,
     color: Colors.textTertiary,
-    textAlign: 'center',
-    lineHeight: 14,
-    fontStyle: 'italic' as const,
+  },
+  disclaimerModalContent: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  disclaimerModalText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  disclaimerModalButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+  },
+  disclaimerModalButtonText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.text,
   },
   verdict: {
     fontSize: 14,
@@ -753,6 +810,13 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  shareCardLegalFooter: {
+    fontSize: 8,
+    color: Colors.textTertiary,
+    marginTop: 8,
+    textAlign: 'center',
+    opacity: 0.7,
   },
   shareImageButton: {
     flexDirection: 'row',
