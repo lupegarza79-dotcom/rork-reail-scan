@@ -2,7 +2,7 @@ import * as Linking from 'expo-linking';
 import { Share } from 'react-native';
 import { ScanResult } from '@/types/scan';
 
-const APP_SCHEME = 'reailscan';
+const APP_SCHEME = 'rork-app';
 const WEB_URL = 'https://reail.app';
 
 export function createScanDeepLink(scanId: string): string {

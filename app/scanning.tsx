@@ -204,7 +204,7 @@ export default function ScanningScreen() {
               <WifiOff size={16} color={Colors.highRisk} />
             )}
             <Text style={[styles.networkText, !isConnected && styles.networkTextOffline]}>
-              {isConnected ? 'AI Engine Connected' : 'Offline Mode'}
+              {isConnected ? 'Online' : 'Offline'}
             </Text>
           </View>
           
