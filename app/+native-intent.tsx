@@ -1,47 +1,55 @@
-import { router } from 'expo-router';
+// app/+native-intent.tsx
+import { parseIncomingUrl, extractFirstHttpUrl } from "../utils/deepLinking";
 
-function extractUrlFromText(text: string): string | null {
-  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
-  const matches = text.match(urlRegex);
-  return matches && matches.length > 0 ? matches[0] : null;
-}
-
-function extractScanIdFromPath(path: string): string | null {
-  const resultMatch = path.match(/result\/([a-zA-Z0-9_-]+)/);
-  if (resultMatch) return resultMatch[1];
-  
-  const scanMatch = path.match(/scan\/([a-zA-Z0-9_-]+)/);
-  if (scanMatch) return scanMatch[1];
-  
-  return null;
-}
-
+/**
+ * Expo Router native intent handler
+ * This function receives a system "path" or shared content payload.
+ * We normalize it and redirect to the right route.
+ *
+ * IMPORTANT:
+ * - Return values are route strings like "/scanning?url=..." or "/result?scanId=..."
+ * - If unknown, return "/" (home).
+ */
 export function redirectSystemPath({
   path,
   initial,
-}: { path: string; initial: boolean }) {
-  console.log('[NativeIntent] Received path:', path, 'initial:', initial);
-  
-  const scanId = extractScanIdFromPath(path);
-  if (scanId) {
-    console.log('[NativeIntent] Found scanId:', scanId);
-    return `/result?scanId=${scanId}`;
+}: {
+  path: string;
+  initial: boolean;
+}) {
+  // 1) If path contains an http(s) URL anywhere, treat as Share-to-Scan payload.
+  const httpUrl = extractFirstHttpUrl(path);
+  if (httpUrl) {
+    return `/scanning?url=${encodeURIComponent(httpUrl)}`;
   }
-  
-  const extractedUrl = extractUrlFromText(path);
-  if (extractedUrl) {
-    console.log('[NativeIntent] Extracted URL for scan:', extractedUrl);
-    return `/scanning?url=${encodeURIComponent(extractedUrl)}`;
+
+  // 2) Parse as deep link (reailscan://...) or router path patterns.
+  const route = parseIncomingUrl(path);
+
+  if (route.type === "result") {
+    return `/result?scanId=${encodeURIComponent(route.scanId)}`;
   }
-  
-  if (path.includes('http://') || path.includes('https://')) {
-    const urlMatch = path.match(/(https?:\/\/[^\s]+)/);
-    if (urlMatch) {
-      console.log('[NativeIntent] Found URL in path:', urlMatch[1]);
-      return `/scanning?url=${encodeURIComponent(urlMatch[1])}`;
+
+  if (route.type === "scan") {
+    return `/scanning?url=${encodeURIComponent(route.url)}`;
+  }
+
+  // 3) Handle common formats like "/result/<id>" or "/scan?url=..."
+  // If someone passes "/result/abc"
+  if (path?.toLowerCase().startsWith("/result/")) {
+    const scanId = path.split("/result/")[1]?.trim();
+    if (scanId) return `/result?scanId=${encodeURIComponent(scanId)}`;
+  }
+
+  // If someone passes "/scan?url=..."
+  if (path?.toLowerCase().startsWith("/scan")) {
+    const idx = path.indexOf("url=");
+    if (idx >= 0) {
+      const url = path.substring(idx + 4);
+      if (url) return `/scanning?url=${encodeURIComponent(url)}`;
     }
   }
-  
-  console.log('[NativeIntent] No actionable content, going to home');
-  return '/';
+
+  // Default: go home
+  return "/";
 }
