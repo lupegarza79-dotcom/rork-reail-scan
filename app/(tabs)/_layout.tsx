@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Scan, Clock, BadgeCheck } from 'lucide-react-native';
+import { Scan, Clock, BadgeCheck, Bell } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 
 export default function TabLayout() {
@@ -35,6 +35,13 @@ export default function TabLayout() {
         options={{
           title: 'History',
           tabBarIcon: ({ color, size }) => <Clock size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="alerts"
+        options={{
+          title: 'Alerts',
+          tabBarIcon: ({ color, size }) => <Bell size={size} color={color} />,
         }}
       />
       <Tabs.Screen
