@@ -1,7 +1,7 @@
 import { generateObject } from "@rork-ai/toolkit-sdk";
 import { z } from "zod";
 import { ScanResult, ScanReasons } from "@/types/scan";
-import { File } from "expo-file-system";
+import * as FileSystem from "expo-file-system";
 import { Platform } from "react-native";
 
 const ReasonDetailSchema = z.object({
@@ -73,8 +73,9 @@ export class AIScanEngine {
       
       if (Platform.OS !== "web") {
         try {
-          const file = new File(imageUri);
-          const base64 = await file.base64();
+          const base64 = await FileSystem.readAsStringAsync(imageUri, {
+            encoding: 'base64',
+          });
           imageData = `data:image/jpeg;base64,${base64}`;
         } catch (e) {
           console.log("[AIScanEngine] Could not read image as base64:", e);

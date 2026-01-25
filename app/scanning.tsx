@@ -1,9 +1,11 @@
 // app/scanning.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, ActivityIndicator, Pressable, StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { scanService } from "../utils/scanService";
 import { useNetwork } from "../hooks/useNetwork";
+import Colors from "@/constants/colors";
 
 type Params = {
   url?: string;
@@ -76,10 +78,10 @@ export default function ScanningScreen() {
 
         clearInterval(interval);
 
-        // Must contain scanId or minimum payload to render result
-        // Route to result with serialized payload if scanId missing
-        if (result?.scanId) {
-          router.replace(`/result?scanId=${encodeURIComponent(result.scanId)}`);
+        // Route to result - check for id (canonical) or scanId
+        const scanIdToUse = result?.id || result?.scanId;
+        if (scanIdToUse) {
+          router.replace(`/result?scanId=${encodeURIComponent(scanIdToUse)}`);
         } else {
           // fallback: pass payload directly (encoded JSON)
           const encoded = encodeURIComponent(JSON.stringify(result ?? {}));
@@ -94,47 +96,128 @@ export default function ScanningScreen() {
   }, [isOnline, router, scanInput, steps]);
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 20 }}>
-      <Text style={{ fontSize: 18, fontWeight: "600", textAlign: "center" }}>
-        {statusText}
-      </Text>
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          <View style={styles.logoContainer}>
+            <Text style={styles.logo}>REAiL</Text>
+          </View>
 
-      <View style={{ height: 18 }} />
+          <Text style={styles.statusText}>{statusText}</Text>
 
-      <ActivityIndicator size="large" />
+          <View style={styles.spacer} />
 
-      <View style={{ height: 18 }} />
+          <ActivityIndicator size="large" color={Colors.primary} />
 
-      <Text style={{ textAlign: "center", opacity: 0.85 }}>
-        {steps[step]}
-      </Text>
+          <View style={styles.spacer} />
 
-      <View style={{ height: 18 }} />
+          <Text style={styles.stepText}>{steps[step]}</Text>
 
-      <Text style={{ textAlign: "center", opacity: 0.6, fontSize: 12 }}>
-        {isOnline ? "Online" : "Offline"} • Risk-based verification
-      </Text>
+          <View style={styles.spacer} />
 
-      {!!error && (
-        <View style={{ marginTop: 18 }}>
-          <Text style={{ textAlign: "center", color: "tomato" }}>{error}</Text>
+          <View style={styles.statusBadge}>
+            <View style={[styles.statusDot, { backgroundColor: isOnline ? Colors.verified : Colors.highRisk }]} />
+            <Text style={styles.statusLabel}>
+              {isOnline ? "Online" : "Offline"} • Risk-based verification
+            </Text>
+          </View>
 
-          <View style={{ height: 12 }} />
+          {!!error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
 
-          <Pressable
-            onPress={() => router.replace("/")}
-            style={{
-              alignSelf: "center",
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 14,
-              backgroundColor: "rgba(255,255,255,0.08)",
-            }}
-          >
-            <Text style={{ fontWeight: "600" }}>Back to Scan</Text>
-          </Pressable>
+              <View style={styles.spacerSmall} />
+
+              <Pressable onPress={() => router.replace("/")} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>Back to Scan</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
-      )}
+      </SafeAreaView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  logoContainer: {
+    marginBottom: 32,
+  },
+  logo: {
+    color: "white",
+    fontWeight: "900" as const,
+    fontSize: 28,
+    letterSpacing: 1,
+  },
+  statusText: {
+    fontSize: 20,
+    fontWeight: "700" as const,
+    textAlign: "center",
+    color: "white",
+  },
+  spacer: {
+    height: 24,
+  },
+  spacerSmall: {
+    height: 12,
+  },
+  stepText: {
+    textAlign: "center",
+    color: "white",
+    opacity: 0.85,
+    fontSize: 14,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusLabel: {
+    color: "white",
+    opacity: 0.7,
+    fontSize: 12,
+  },
+  errorContainer: {
+    marginTop: 24,
+    alignItems: "center",
+  },
+  errorText: {
+    textAlign: "center",
+    color: Colors.highRisk,
+    fontSize: 14,
+  },
+  backBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  backBtnText: {
+    fontWeight: "700" as const,
+    color: "white",
+  },
+});
