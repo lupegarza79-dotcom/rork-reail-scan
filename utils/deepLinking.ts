@@ -1,123 +1,86 @@
-import * as Linking from 'expo-linking';
-import { Share } from 'react-native';
-import { ScanResult } from '@/types/scan';
+import * as Linking from "expo-linking";
 
-const APP_SCHEME = 'reailscan';
-const WEB_URL = 'https://reail.app';
+export const APP_SCHEME = "reailscan";
 
-export function createScanDeepLink(scanId: string): string {
-  return Linking.createURL(`result/${scanId}`, {
-    scheme: APP_SCHEME,
-  });
+/**
+ * Deep link builders
+ */
+export function buildResultLink(scanId: string, locale: "en" | "es" = "en") {
+  return `${APP_SCHEME}://result?scanId=${encodeURIComponent(scanId)}&lang=${encodeURIComponent(locale)}`;
 }
 
-export function createWebShareLink(scan: ScanResult): string {
-  return `${WEB_URL}/scan/${scan.id}`;
+export function buildScanLink(urlToScan: string, locale: "en" | "es" = "en") {
+  return `${APP_SCHEME}://scan?url=${encodeURIComponent(urlToScan)}&lang=${encodeURIComponent(locale)}`;
 }
 
-export function parseScanIdFromUrl(url: string): string | null {
+/**
+ * Extract the first http(s) URL from any shared text.
+ */
+export function extractFirstHttpUrl(text: string): string | null {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/[^\s]+/i);
+  return match?.[0] ?? null;
+}
+
+/**
+ * Parse incoming deep links and return a routing instruction.
+ * We keep it simple and explicit.
+ */
+export type DeepLinkRoute =
+  | { type: "result"; scanId: string }
+  | { type: "scan"; url: string }
+  | { type: "unknown" };
+
+export function parseIncomingUrl(incoming: string | null | undefined): DeepLinkRoute {
+  if (!incoming) return { type: "unknown" };
+
+  const sharedHttp = extractFirstHttpUrl(incoming);
+  if (sharedHttp) return { type: "scan", url: sharedHttp };
+
   try {
-    const parsed = Linking.parse(url);
-    if (parsed.path?.startsWith('result/')) {
-      return parsed.path.replace('result/', '');
+    const parsed = Linking.parse(incoming);
+
+    const hostOrPath = (parsed.hostname || parsed.path || "").toLowerCase();
+    const params = (parsed.queryParams || {}) as Record<string, any>;
+
+    if (hostOrPath.includes("result")) {
+      const scanId = String(params.scanId ?? "");
+      if (scanId) return { type: "result", scanId };
     }
-    if (parsed.path?.startsWith('scan/')) {
-      return parsed.path.replace('scan/', '');
+
+    if (hostOrPath.includes("scan")) {
+      const url = String(params.url ?? "");
+      if (url) return { type: "scan", url };
     }
-    if (parsed.queryParams?.scanId) {
-      return parsed.queryParams.scanId as string;
+
+    if (hostOrPath.startsWith("result/")) {
+      const scanId = hostOrPath.split("result/")[1]?.trim();
+      if (scanId) return { type: "result", scanId };
     }
-    return null;
+  } catch {
+    // If parse fails, treat as unknown
+  }
+
+  return { type: "unknown" };
+}
+
+/**
+ * Listener helper: calls cb with raw URL every time app receives a deep link.
+ */
+export function addUrlListener(cb: (url: string) => void) {
+  const sub = Linking.addEventListener("url", (event) => {
+    if (event?.url) cb(event.url);
+  });
+  return () => sub.remove();
+}
+
+/**
+ * Get initial URL when app starts.
+ */
+export async function getInitialURL(): Promise<string | null> {
+  try {
+    return await Linking.getInitialURL();
   } catch {
     return null;
   }
-}
-
-export function buildShareMessage(scan: ScanResult, language: 'en' | 'es' = 'en'): string {
-  const badgeEmoji = scan.badge === 'VERIFIED' ? '✅' : scan.badge === 'UNVERIFIED' ? '⚠️' : '❌';
-  const badgeText = {
-    en: {
-      VERIFIED: 'Verified',
-      UNVERIFIED: 'Unverified',
-      HIGH_RISK: 'High Risk',
-    },
-    es: {
-      VERIFIED: 'Verificado',
-      UNVERIFIED: 'No verificado',
-      HIGH_RISK: 'Alto riesgo',
-    },
-  };
-
-  const messages = {
-    en: {
-      title: 'REAiL Scan Result',
-      domain: 'Domain',
-      score: 'Trust Score',
-      status: 'Status',
-      footer: 'Scan any link at reail.app',
-      verifiedBy: 'Verified by REAiL Scan',
-    },
-    es: {
-      title: 'Resultado REAiL Scan',
-      domain: 'Dominio',
-      score: 'Puntuación de confianza',
-      status: 'Estado',
-      footer: 'Escanea cualquier enlace en reail.app',
-      verifiedBy: 'Verificado por REAiL Scan',
-    },
-  };
-
-  const t = messages[language];
-  const badge = badgeText[language][scan.badge];
-
-  return `${badgeEmoji} ${t.title}
-
-${t.domain}: ${scan.domain}
-${t.score}: ${scan.score}/100
-${t.status}: ${badge}
-
-${t.verifiedBy}
-
-${t.footer}`;
-}
-
-export async function shareResult(scan: ScanResult, language: 'en' | 'es' = 'en'): Promise<boolean> {
-  try {
-    const message = buildShareMessage(scan, language);
-    const result = await Share.share({
-      message,
-      title: 'REAiL Scan Result',
-    });
-    
-    return result.action === Share.sharedAction;
-  } catch (error) {
-    console.log('[DeepLinking] Share error:', error);
-    return false;
-  }
-}
-
-export async function openUrl(url: string): Promise<boolean> {
-  try {
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) {
-      await Linking.openURL(url);
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.log('[DeepLinking] Open URL error:', error);
-    return false;
-  }
-}
-
-export function getInitialUrl(): Promise<string | null> {
-  return Linking.getInitialURL();
-}
-
-export function addUrlListener(callback: (url: string) => void): () => void {
-  const subscription = Linking.addEventListener('url', (event) => {
-    callback(event.url);
-  });
-  
-  return () => subscription.remove();
 }
