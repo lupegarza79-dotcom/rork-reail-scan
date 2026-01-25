@@ -1,11 +1,20 @@
 import * as Linking from "expo-linking";
 
 export const APP_SCHEME = "reailscan";
+export const WEB_BASE_URL = "https://reail.app";
 
 /**
  * Deep link builders
  */
 export function buildResultLink(scanId: string, locale: "en" | "es" = "en") {
+  return `${APP_SCHEME}://result?scanId=${encodeURIComponent(scanId)}&lang=${encodeURIComponent(locale)}`;
+}
+
+export function buildWebResultUrl(scanId: string) {
+  return `${WEB_BASE_URL}/r/${encodeURIComponent(scanId)}`;
+}
+
+export function buildAppResultLink(scanId: string, locale: "en" | "es" = "en") {
   return `${APP_SCHEME}://result?scanId=${encodeURIComponent(scanId)}&lang=${encodeURIComponent(locale)}`;
 }
 

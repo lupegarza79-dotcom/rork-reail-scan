@@ -48,6 +48,12 @@ function RootLayoutNav() {
           animation: 'slide_from_bottom',
         }} 
       />
+      <Stack.Screen 
+        name="r/[scanId]" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
       <Stack.Screen name="+not-found" />
     </Stack>
   );
