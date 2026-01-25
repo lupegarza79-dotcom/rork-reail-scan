@@ -13,7 +13,8 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
-import { getCachedScanResult } from "../utils/scanCache";
+import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
+import { fetchScanResultById } from "../utils/api";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -101,6 +102,8 @@ export default function ResultScreen() {
 
   const shareCardRef = useRef<View>(null);
   const [cached, setCached] = useState<ScanResult | null>(null);
+  const [loadingRemote, setLoadingRemote] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
   const scanIdStr = scanId ? String(scanId) : "";
 
   const parsedPayload = useMemo(() => {
@@ -114,7 +117,38 @@ export default function ResultScreen() {
     (async () => {
       if (scanIdStr && !parsedPayload) {
         const found = await getCachedScanResult(scanIdStr);
-        if (active && found) setCached(found);
+        if (!active) return;
+
+        if (found) {
+          setCached(found);
+          return;
+        }
+
+        setLoadingRemote(true);
+        setRemoteError(null);
+
+        const remote = await fetchScanResultById(scanIdStr);
+        if (!active) return;
+
+        setLoadingRemote(false);
+
+        if (!remote) {
+          setRemoteError("Could not load shared result. Try again later.");
+          return;
+        }
+
+        const normalized: ScanResult = {
+          scanId: remote.id,
+          badge: remote.badge,
+          score: remote.score,
+          url: remote.url,
+          domain: remote.domain,
+          title: remote.title,
+          reasons: remote.reasons,
+        };
+
+        setCached(normalized);
+        await cacheScanResult(remote.id, normalized);
       }
     })();
 
@@ -226,6 +260,13 @@ export default function ResultScreen() {
 
           <Text style={styles.badgeText}>{badgeLabel(badge)}</Text>
           <Text style={styles.scoreText}>Trust Score: {score}</Text>
+
+          {loadingRemote && (
+            <Text style={styles.loadingText}>Loading shared result…</Text>
+          )}
+          {!!remoteError && (
+            <Text style={styles.errorText}>{remoteError}</Text>
+          )}
 
           <Pressable onPress={() => setDisclaimerOpen(true)} style={styles.disclaimerPill}>
             <Text style={styles.disclaimerPillText}>
@@ -632,5 +673,18 @@ const styles = StyleSheet.create({
   },
   spacer18: {
     height: 18,
+  },
+  loadingText: {
+    color: "white",
+    opacity: 0.65,
+    marginTop: 6,
+    textAlign: "center" as const,
+    fontSize: 13,
+  },
+  errorText: {
+    color: "#ff6b6b",
+    marginTop: 8,
+    textAlign: "center" as const,
+    fontSize: 13,
   },
 });
