@@ -9,7 +9,9 @@ import {
   Share,
   Platform,
   StyleSheet,
+  Alert,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
@@ -213,7 +215,23 @@ export default function ResultScreen() {
     lines.push("");
     lines.push(shareCardFooter);
 
-    await Share.share({ message: lines.join("\n") });
+    const message = lines.join("\n");
+    
+    try {
+      await Share.share({ message });
+    } catch (err) {
+      // Fallback for web or when share fails
+      try {
+        await Clipboard.setStringAsync(message);
+        if (Platform.OS === "web") {
+          alert("Report copied to clipboard!");
+        } else {
+          Alert.alert("Copied", "Report copied to clipboard.");
+        }
+      } catch {
+        // Silent fail
+      }
+    }
   };
 
   const onShareImage = async () => {
@@ -226,11 +244,17 @@ export default function ResultScreen() {
       const shareMsg = scanIdToShare
         ? `${shareCardFooter}\n${buildWebResultUrl(scanIdToShare)}`
         : shareCardFooter;
-      await Share.share(
-        Platform.OS === "ios"
-          ? { url: uri }
-          : { message: shareMsg, url: uri }
-      );
+      
+      try {
+        await Share.share(
+          Platform.OS === "ios"
+            ? { url: uri }
+            : { message: shareMsg, url: uri }
+        );
+      } catch {
+        // Share failed, fallback to text share
+        await onShareText();
+      }
     } catch {
       await onShareText();
     }

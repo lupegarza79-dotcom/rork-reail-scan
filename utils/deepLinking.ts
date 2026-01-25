@@ -1,4 +1,6 @@
 import * as Linking from "expo-linking";
+import * as Clipboard from "expo-clipboard";
+import { Platform } from "react-native";
 
 export const APP_SCHEME = "reailscan";
 export const WEB_BASE_URL = "https://reail.app";
@@ -101,7 +103,7 @@ export async function shareResult(
   scan: { id: string; domain: string; score: number; badge: string },
   locale: "en" | "es" = "en"
 ): Promise<void> {
-  const { Share } = await import('react-native');
+  const { Share, Alert } = await import('react-native');
   
   const link = buildResultLink(scan.id, locale);
   const badgeText = scan.badge === 'VERIFIED' ? '✅ Verified' 
@@ -114,7 +116,16 @@ export async function shareResult(
 
   try {
     await Share.share({ message });
-  } catch (error) {
-    console.log('[shareResult] Error:', error);
+  } catch {
+    try {
+      await Clipboard.setStringAsync(message);
+      if (Platform.OS === "web") {
+        alert("Result copied to clipboard!");
+      } else {
+        Alert.alert("Copied", "Result copied to clipboard.");
+      }
+    } catch {
+      // Silent fail
+    }
   }
 }

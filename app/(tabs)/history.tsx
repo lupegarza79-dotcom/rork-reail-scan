@@ -8,7 +8,9 @@ import {
   FlatList,
   Share,
   Alert,
+  Platform,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useRouter, useFocusEffect } from "expo-router";
 import {
   loadHistory,
@@ -81,7 +83,20 @@ export default function HistoryScreen() {
       .filter(Boolean)
       .join("\n");
 
-    await Share.share({ message: msg });
+    try {
+      await Share.share({ message: msg });
+    } catch {
+      try {
+        await Clipboard.setStringAsync(msg);
+        if (Platform.OS === "web") {
+          alert("Scan copied to clipboard!");
+        } else {
+          Alert.alert("Copied", "Scan copied to clipboard.");
+        }
+      } catch {
+        // Silent fail
+      }
+    }
   };
 
   const onClear = () => {

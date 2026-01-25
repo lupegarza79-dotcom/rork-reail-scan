@@ -8,7 +8,9 @@ import {
   TextInput,
   Alert,
   StyleSheet,
+  Platform,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Bell } from "lucide-react-native";
 import {
@@ -117,7 +119,22 @@ export default function AlertsScreen() {
       "",
       "Risk-based verification • Not absolute truth",
     ].join("\n");
-    await Share.share({ message: msg });
+    
+    try {
+      await Share.share({ message: msg });
+    } catch {
+      // Fallback for web or when share fails
+      try {
+        await Clipboard.setStringAsync(msg);
+        if (Platform.OS === "web") {
+          alert("Alert copied to clipboard!");
+        } else {
+          Alert.alert("Copied", "Alert copied to clipboard.");
+        }
+      } catch {
+        // Silent fail
+      }
+    }
   };
 
   const onWatch = async (a: ReailAlert) => {
