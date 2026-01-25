@@ -1,457 +1,254 @@
-import React, { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
-  Linking,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
-  ArrowLeft, 
-  Globe, 
-  Shield, 
-  Clock, 
-  Zap, 
-  HelpCircle, 
-  FileText,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Smartphone,
-} from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
-import { useApp } from '@/contexts/AppContext';
+// app/settings.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, Pressable, Switch, Alert } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { purgeOldHistory } from "../utils/historyStore";
 
-const AUTO_DELETE_OPTIONS = [
-  { value: '7' as const, labelKey: 'days7' as const },
-  { value: '30' as const, labelKey: 'days30' as const },
-  { value: 'never' as const, labelKey: 'never' as const },
-];
+type AutoDelete = "never" | "7" | "30";
+
+const SETTINGS_KEY = "reail_settings_v1";
+
+export type ReailSettings = {
+  language: "en" | "es";
+  privacyMode: boolean;
+  saveHistory: boolean;
+  autoDelete: AutoDelete;
+  advancedScan: boolean;
+};
+
+const DEFAULTS: ReailSettings = {
+  language: "en",
+  privacyMode: true,
+  saveHistory: true,
+  autoDelete: "never",
+  advancedScan: false,
+};
+
+async function loadSettings(): Promise<ReailSettings> {
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULTS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULTS, ...parsed };
+  } catch {
+    return DEFAULTS;
+  }
+}
+
+async function saveSettings(s: ReailSettings) {
+  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+export async function getSettings(): Promise<ReailSettings> {
+  return loadSettings();
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { t, settings, updateSettings } = useApp();
-  const [faqExpanded, setFaqExpanded] = useState(false);
+  const [settings, setSettings] = useState<ReailSettings>(DEFAULTS);
+  const [loaded, setLoaded] = useState(false);
 
-  const handleBack = useCallback(() => {
-    router.back();
-  }, [router]);
+  useEffect(() => {
+    (async () => {
+      const s = await loadSettings();
+      setSettings(s);
+      setLoaded(true);
 
-  const toggleLanguage = useCallback(() => {
-    const newLang = settings.language === 'en' ? 'es' : 'en';
-    updateSettings({ language: newLang });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, [settings.language, updateSettings]);
-
-  const togglePrivacyMode = useCallback(() => {
-    updateSettings({ privacyMode: !settings.privacyMode });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, [settings.privacyMode, updateSettings]);
-
-  const toggleSaveHistory = useCallback(() => {
-    updateSettings({ saveHistory: !settings.saveHistory });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, [settings.saveHistory, updateSettings]);
-
-  const toggleAdvancedScan = useCallback(() => {
-    updateSettings({ advancedScan: !settings.advancedScan });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, [settings.advancedScan, updateSettings]);
-
-  const handleAutoDeleteChange = useCallback((value: '7' | '30' | 'never') => {
-    updateSettings({ autoDelete: value });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, [updateSettings]);
-
-  const handleHowItWorks = useCallback(() => {
-    Linking.openURL('https://reail.app/how-it-works');
+      if (s.autoDelete === "7") await purgeOldHistory(7);
+      if (s.autoDelete === "30") await purgeOldHistory(30);
+    })();
   }, []);
 
-  const handleLegal = useCallback(() => {
-    Linking.openURL('https://reail.app/legal');
-  }, []);
+  const update = async (patch: Partial<ReailSettings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    await saveSettings(next);
+
+    if (patch.autoDelete === "7") await purgeOldHistory(7);
+    if (patch.autoDelete === "30") await purgeOldHistory(30);
+  };
+
+  const autoDeleteLabel = useMemo(() => {
+    if (settings.autoDelete === "never") return "Never";
+    if (settings.autoDelete === "7") return "After 7 days";
+    return "After 30 days";
+  }, [settings.autoDelete]);
+
+  const disclaimer =
+    "REAiL provides risk-based verification using public signals and automated analysis. It does not claim absolute truth.";
+
+  if (!loaded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0b0c10", justifyContent: "center" }}>
+        <Text style={{ color: "white", textAlign: "center", opacity: 0.8 }}>Loading…</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
-            <ArrowLeft size={24} color={Colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{t.settings}</Text>
-          <View style={styles.headerButton} />
+    <View style={{ flex: 1, backgroundColor: "#0b0c10" }}>
+      <View style={styles.topBar}>
+        <Pressable onPress={() => router.back()} style={styles.topBtn}>
+          <Text style={styles.topBtnText}>←</Text>
+        </Pressable>
+        <Text style={styles.title}>Settings</Text>
+        <View style={{ width: 44 }} />
+      </View>
+
+      <View style={{ padding: 16 }}>
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Language</Text>
+            <Text style={styles.rowSub}>English / Español</Text>
+          </View>
+          <Pressable
+            onPress={() => update({ language: settings.language === "en" ? "es" : "en" })}
+            style={styles.pillBtn}
+          >
+            <Text style={styles.pillText}>{settings.language.toUpperCase()}</Text>
+          </Pressable>
         </View>
 
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t.language}</Text>
-            <TouchableOpacity style={styles.settingRow} onPress={toggleLanguage}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <Globe size={20} color={Colors.accent} />
-                </View>
-                <Text style={styles.settingLabel}>{t.language}</Text>
-              </View>
-              <View style={styles.languageToggle}>
-                <Text style={[
-                  styles.langOption,
-                  settings.language === 'en' && styles.langOptionActive,
-                ]}>EN</Text>
-                <Text style={styles.langDivider}>|</Text>
-                <Text style={[
-                  styles.langOption,
-                  settings.language === 'es' && styles.langOptionActive,
-                ]}>ES</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Privacy</Text>
-            
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <Shield size={20} color={Colors.verified} />
-                </View>
-                <View>
-                  <Text style={styles.settingLabel}>{t.privacyMode}</Text>
-                  <Text style={styles.settingDescription}>Do not store scan URLs</Text>
-                </View>
-              </View>
-              <Switch
-                value={settings.privacyMode}
-                onValueChange={togglePrivacyMode}
-                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
-                thumbColor={Colors.text}
-              />
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <Clock size={20} color={Colors.unverified} />
-                </View>
-                <View>
-                  <Text style={styles.settingLabel}>{t.saveHistoryLabel}</Text>
-                  <Text style={styles.settingDescription}>Keep scan records</Text>
-                </View>
-              </View>
-              <Switch
-                value={settings.saveHistory}
-                onValueChange={toggleSaveHistory}
-                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
-                thumbColor={Colors.text}
-              />
-            </View>
-
-            <View style={styles.settingRowColumn}>
-              <Text style={styles.settingLabel}>{t.autoDelete}</Text>
-              <View style={styles.autoDeleteOptions}>
-                {AUTO_DELETE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.autoDeleteOption,
-                      settings.autoDelete === option.value && styles.autoDeleteOptionActive,
-                    ]}
-                    onPress={() => handleAutoDeleteChange(option.value)}
-                  >
-                    <Text style={[
-                      styles.autoDeleteText,
-                      settings.autoDelete === option.value && styles.autoDeleteTextActive,
-                    ]}>
-                      {t[option.labelKey]}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Scanning</Text>
-            
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <Zap size={20} color={Colors.accentSecondary} />
-                </View>
-                <View>
-                  <Text style={styles.settingLabel}>{t.advancedScan}</Text>
-                  <Text style={styles.settingDescription}>Deep analysis takes longer</Text>
-                </View>
-              </View>
-              <Switch
-                value={settings.advancedScan}
-                onValueChange={toggleAdvancedScan}
-                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
-                thumbColor={Colors.text}
-              />
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Info</Text>
-            
-            <TouchableOpacity style={styles.settingRow} onPress={handleHowItWorks}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <HelpCircle size={20} color={Colors.textSecondary} />
-                </View>
-                <Text style={styles.settingLabel}>{t.howItWorks}</Text>
-              </View>
-              <ChevronRight size={20} color={Colors.textTertiary} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.settingRow} onPress={handleLegal}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <FileText size={20} color={Colors.textSecondary} />
-                </View>
-                <Text style={styles.settingLabel}>{t.legal}</Text>
-              </View>
-              <ChevronRight size={20} color={Colors.textTertiary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>FAQ</Text>
-            
-            <TouchableOpacity 
-              style={styles.faqRow} 
-              onPress={() => setFaqExpanded(!faqExpanded)}
-            >
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIcon}>
-                  <Smartphone size={20} color={Colors.accent} />
-                </View>
-                <Text style={styles.settingLabel}>{t.faqPhoneHacked}</Text>
-              </View>
-              {faqExpanded ? (
-                <ChevronUp size={20} color={Colors.textTertiary} />
-              ) : (
-                <ChevronDown size={20} color={Colors.textTertiary} />
-              )}
-            </TouchableOpacity>
-            {faqExpanded && (
-              <View style={styles.faqAnswer}>
-                <Text style={styles.faqAnswerText}>{t.faqPhoneHackedAnswer}</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.disclaimerSection}>
-            <Text style={styles.disclaimerTitle}>Disclaimer</Text>
-            <Text style={styles.disclaimerText}>
-              REAiL provides risk-based signals using public information and automated analysis. It does not claim absolute truth.
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Privacy Mode</Text>
+            <Text style={styles.rowSub}>
+              Redacts sensitive data in saved history.
             </Text>
           </View>
+          <Switch
+            value={settings.privacyMode}
+            onValueChange={(v) => update({ privacyMode: v })}
+          />
+        </View>
 
-          <Text style={styles.versionText}>REAiL Scan v1.0.0</Text>
-        </ScrollView>
-      </SafeAreaView>
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Save scan history</Text>
+            <Text style={styles.rowSub}>Keeps scans on this device.</Text>
+          </View>
+          <Switch
+            value={settings.saveHistory}
+            onValueChange={(v) => update({ saveHistory: v })}
+          />
+        </View>
+
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Auto-delete history</Text>
+            <Text style={styles.rowSub}>{autoDeleteLabel}</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              const next: AutoDelete =
+                settings.autoDelete === "never"
+                  ? "7"
+                  : settings.autoDelete === "7"
+                  ? "30"
+                  : "never";
+              update({ autoDelete: next });
+            }}
+            style={styles.pillBtn}
+          >
+            <Text style={styles.pillText}>
+              {settings.autoDelete === "never" ? "Never" : settings.autoDelete}
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>Advanced scan</Text>
+            <Text style={styles.rowSub}>Slower, deeper analysis.</Text>
+          </View>
+          <Switch
+            value={settings.advancedScan}
+            onValueChange={(v) => update({ advancedScan: v })}
+          />
+        </View>
+
+        <View style={styles.legalBox}>
+          <Text style={styles.legalTitle}>Verification disclaimer</Text>
+          <Text style={styles.legalText}>{disclaimer}</Text>
+        </View>
+
+        <Pressable
+          onPress={() => {
+            Alert.alert(
+              "About REAiL",
+              "Risk-based verification. Share to scan. Explainable reasons A–F."
+            );
+          }}
+          style={styles.aboutBtn}
+        >
+          <Text style={styles.aboutText}>About</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+const styles: Record<string, any> = {
+  topBar: {
+    height: 56,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  headerButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+  topBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600' as const,
-    color: Colors.text,
+  topBtnText: { color: "white", fontSize: 16, opacity: 0.9 },
+  title: { color: "white", fontWeight: "900", fontSize: 16 },
+
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  settingRowColumn: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  settingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  settingIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  settingLabel: {
-    fontSize: 15,
-    fontWeight: '500' as const,
-    color: Colors.text,
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    marginTop: 2,
-  },
-  languageToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 8,
+  rowTitle: { color: "white", fontWeight: "900", fontSize: 14 },
+  rowSub: { color: "white", opacity: 0.6, marginTop: 4, fontSize: 12 },
+
+  pillBtn: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  langOption: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.textTertiary,
-    paddingHorizontal: 4,
-  },
-  langOptionActive: {
-    color: Colors.primary,
-  },
-  langDivider: {
-    color: Colors.textTertiary,
-    marginHorizontal: 4,
-  },
-  autoDeleteOptions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  autoDeleteOption: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: 'center',
-  },
-  autoDeleteOptionActive: {
-    backgroundColor: Colors.primary,
-  },
-  autoDeleteText: {
-    fontSize: 13,
-    fontWeight: '500' as const,
-    color: Colors.textSecondary,
-  },
-  autoDeleteTextActive: {
-    color: Colors.text,
-  },
-  versionText: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  faqRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
+  pillText: { color: "white", fontWeight: "900", opacity: 0.9 },
+
+  legalBox: {
+    marginTop: 18,
+    borderRadius: 18,
     padding: 14,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  faqAnswer: {
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 8,
-  },
-  faqAnswerText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  disclaimerSection: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+  legalTitle: { color: "white", fontWeight: "900", marginBottom: 6 },
+  legalText: { color: "white", opacity: 0.75, fontSize: 12, lineHeight: 17 },
+
+  aboutBtn: {
+    marginTop: 14,
+    height: 46,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    borderColor: "rgba(255,255,255,0.10)",
   },
-  disclaimerTitle: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
-    marginBottom: 8,
-  },
-  disclaimerText: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    lineHeight: 18,
-  },
-});
+  aboutText: { color: "white", fontWeight: "900", opacity: 0.9 },
+};
