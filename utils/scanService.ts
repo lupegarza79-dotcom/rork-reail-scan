@@ -1,11 +1,10 @@
 // utils/scanService.ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
 import { cacheScanResult } from "./scanCache";
 
-// If your project has path aliases (@/types/scan), keep them.
-// If not, change to relative: ../types/scan
 import type { ScanResult, BadgeType, ScanReasons } from "@/types/scan";
 
 export interface ScanUrlRequest {
@@ -36,19 +35,48 @@ interface ApiScanResponse {
   disclaimerKey: string;
 }
 
-/**
- * ScanService
- * - Uses AI engine first (if enabled)
- * - Falls back to mock
- * - Optionally can call a backend later
- * - Auto-saves results into local history store
- */
+const SETTINGS_KEY = "reail_settings_v1";
+
+type ReailSettings = {
+  language?: "en" | "es";
+  privacyMode?: boolean;
+  saveHistory?: boolean;
+  autoDelete?: "never" | "7" | "30";
+  advancedScan?: boolean;
+};
+
+const DEFAULT_SETTINGS: Required<ReailSettings> = {
+  language: "en",
+  privacyMode: true,
+  saveHistory: true,
+  autoDelete: "never",
+  advancedScan: false,
+};
+
+let _settingsCache: Required<ReailSettings> | null = null;
+let _settingsCacheAt = 0;
+
+async function getSettingsCached(): Promise<Required<ReailSettings>> {
+  const now = Date.now();
+  if (_settingsCache && now - _settingsCacheAt < 5000) return _settingsCache;
+
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as ReailSettings) : {};
+    _settingsCache = { ...DEFAULT_SETTINGS, ...(parsed || {}) };
+    _settingsCacheAt = now;
+    return _settingsCache;
+  } catch {
+    _settingsCache = DEFAULT_SETTINGS;
+    _settingsCacheAt = now;
+    return _settingsCache;
+  }
+}
+
 class ScanService {
-  // You can flip these later if needed
   useAI = true;
   useMock = true;
 
-  // Optional future: backend endpoint
   apiBaseUrl: string | null = null;
 
   private normalizeUrl(url: string) {
@@ -63,25 +91,54 @@ class ScanService {
     }
   }
 
-  private async recordHistory(result: ScanResult) {
-    try {
-      // Minimal safe fields; keep reasons as-is (you can redact later in privacyMode)
-      await saveToHistory({
+  private async recordLocalStorage(result: ScanResult) {
+    const settings = await getSettingsCached();
+
+    if (!settings.saveHistory) return;
+
+    const createdAt = new Date(result.timestamp || Date.now()).toISOString();
+    const domain = result.domain || this.extractDomain(result.url);
+
+    if (settings.privacyMode) {
+      const minimal: any = {
         scanId: result.id,
         badge: result.badge,
         score: result.score,
-        domain: result.domain || this.extractDomain(result.url),
-        title: result.title,
-        url: result.url,
-        createdAt: new Date(result.timestamp || Date.now()).toISOString(),
-        reasons: result.reasons,
-      });
+        domain,
+        createdAt,
+      };
+
+      await saveToHistory(minimal);
 
       if (result.id) {
-        await cacheScanResult(result.id, result);
+        await cacheScanResult(result.id, {
+          id: result.id,
+          badge: result.badge,
+          score: result.score,
+          domain,
+          platform: result.platform,
+          timestamp: result.timestamp || Date.now(),
+          reasons: result.reasons,
+          url: "",
+          title: undefined,
+        });
       }
-    } catch {
-      // never crash scanning because of history
+      return;
+    }
+
+    await saveToHistory({
+      scanId: result.id,
+      badge: result.badge,
+      score: result.score,
+      domain,
+      title: result.title,
+      url: result.url,
+      createdAt,
+      reasons: result.reasons,
+    });
+
+    if (result.id) {
+      await cacheScanResult(result.id, result);
     }
   }
 
@@ -100,13 +157,13 @@ class ScanService {
   }
 
   async scanUrl(request: ScanUrlRequest): Promise<ScanResult> {
+    const settings = await getSettingsCached();
     const url = this.normalizeUrl(request.url);
+    const advanced = request.advancedScan ?? settings.advancedScan;
 
-    // 1) AI engine
     if (this.useAI) {
       try {
         const res = await aiScanEngine.analyzeUrl(url);
-        // normalize missing fields
         const result: ScanResult = {
           ...res,
           url: res.url || url,
@@ -114,26 +171,26 @@ class ScanService {
           platform: res.platform || detectPlatform(url),
           timestamp: res.timestamp || Date.now(),
         };
-        await this.recordHistory(result);
+
+        await this.recordLocalStorage(result);
         return result;
       } catch {
         // fall through
       }
     }
 
-    // 2) Backend (optional)
     if (this.apiBaseUrl) {
       try {
         const resp = await fetch(`${this.apiBaseUrl}/scan/url`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, advancedScan: !!request.advancedScan }),
+          body: JSON.stringify({ url, advancedScan: !!advanced }),
         });
 
         if (resp.ok) {
           const data = (await resp.json()) as ApiScanResponse;
           const result = this.mapApiResponse(data, url);
-          await this.recordHistory(result);
+          await this.recordLocalStorage(result);
           return result;
         }
       } catch {
@@ -141,7 +198,6 @@ class ScanService {
       }
     }
 
-    // 3) Mock fallback
     const mock = generateMockScan(url);
     const result: ScanResult = {
       ...mock,
@@ -150,21 +206,22 @@ class ScanService {
       platform: mock.platform || detectPlatform(url),
       timestamp: mock.timestamp || Date.now(),
     };
-    await this.recordHistory(result);
+
+    await this.recordLocalStorage(result);
     return result;
   }
 
   async scanMedia(request: ScanMediaRequest): Promise<ScanResult> {
+    const settings = await getSettingsCached();
     const mediaUri = (request.mediaUri || "").trim();
+    const advanced = request.advancedScan ?? settings.advancedScan;
 
-    // 1) AI engine on image
     if (this.useAI) {
       try {
         const res = await aiScanEngine.analyzeImage(mediaUri);
 
         const result: ScanResult = {
           ...res,
-          // Use a synthetic URL for screenshots if none exists
           url: res.url || "screenshot://uploaded",
           domain: res.domain || "Screenshot",
           platform: res.platform || "other",
@@ -172,20 +229,17 @@ class ScanService {
           timestamp: res.timestamp || Date.now(),
         };
 
-        await this.recordHistory(result);
+        await this.recordLocalStorage(result);
         return result;
       } catch {
         // fall through
       }
     }
 
-    // 2) Backend (optional)
     if (this.apiBaseUrl) {
       try {
         const form = new FormData();
-        // RN FormData requires a file object for native; keep simple here
-        // If you later implement backend media, you'll likely use expo-file-system to read and attach.
-        form.append("advancedScan", String(!!request.advancedScan));
+        form.append("advancedScan", String(!!advanced));
 
         const resp = await fetch(`${this.apiBaseUrl}/scan/media`, {
           method: "POST",
@@ -195,10 +249,9 @@ class ScanService {
         if (resp.ok) {
           const data = (await resp.json()) as ApiScanResponse;
           const result = this.mapApiResponse(data, "screenshot://uploaded");
-          // enforce screenshot labeling
           result.domain = "Screenshot";
           result.title = "Uploaded screenshot";
-          await this.recordHistory(result);
+          await this.recordLocalStorage(result);
           return result;
         }
       } catch {
@@ -206,7 +259,6 @@ class ScanService {
       }
     }
 
-    // 3) Mock fallback for screenshot
     const mock = generateMockScan("screenshot://uploaded");
     const result: ScanResult = {
       ...mock,
@@ -216,13 +268,12 @@ class ScanService {
       title: "Uploaded screenshot",
       timestamp: mock.timestamp || Date.now(),
     };
-    await this.recordHistory(result);
+
+    await this.recordLocalStorage(result);
     return result;
   }
 
   async reportScam(req: ReportScamRequest): Promise<{ ok: boolean }> {
-    // MVP: local-only (can be wired to backend later)
-    // Never throw; never block UI
     try {
       if (!req.scanId) return { ok: false };
       return { ok: true };
@@ -232,13 +283,6 @@ class ScanService {
   }
 }
 
-/**
- * Keep compatibility for existing imports:
- * - `scanService.scanUrl({url})`
- * And also provide simple functions used by our scanning screen:
- * - `scanUrl(url)`
- * - `scanMedia(uri)`
- */
 export const scanService = new ScanService();
 
 export async function scanUrl(url: string, advancedScan?: boolean) {
