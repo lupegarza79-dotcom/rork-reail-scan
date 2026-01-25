@@ -1,487 +1,323 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+// app/result.tsx
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  Platform,
-  Animated,
+  Pressable,
   Modal,
-} from 'react-native';
-import * as Sharing from 'expo-sharing';
-import { captureRef } from 'react-native-view-shot';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  ScrollView,
+  Share,
+  Platform,
+  StyleSheet,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { captureRef } from "react-native-view-shot";
+import * as WebBrowser from "expo-web-browser";
 
-import { BlurView } from 'expo-blur';
-import { 
-  ArrowLeft, 
-  Share2, 
-  Bookmark, 
-  AlertOctagon,
-  ChevronDown,
-  ChevronUp,
-  Image,
-  X,
-  Check,
-  ExternalLink,
-  Sparkles,
-  Info,
-} from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
-import { useApp } from '@/contexts/AppContext';
-import Badge from '@/components/Badge';
-import Logo from '@/components/Logo';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
-import { shareResult } from '@/utils/deepLinking';
-import { openScannedLink } from '@/utils/browser';
-import { maybeRequestReviewAfterScan } from '@/utils/storeReview';
+type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
-const REASON_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
-const SCORE_ANIMATION_DURATION = 800;
+type Reason = {
+  title: string;
+  summary: string;
+  details?: string[];
+  whatWouldVerify?: string[];
+};
 
-const REPORT_CATEGORIES = [
-  { key: 'scam_sale', label: 'Scam sale' },
-  { key: 'fake_identity', label: 'Fake identity' },
-  { key: 'manipulated_media', label: 'Manipulated media' },
-  { key: 'misleading_claims', label: 'Misleading claims' },
-  { key: 'other', label: 'Other' },
-];
+type ScanResult = {
+  scanId?: string;
+  badge?: "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
+  score?: number;
+  domain?: string;
+  title?: string;
+  url?: string;
+  thumbnailUrl?: string;
+  reasons?: Partial<Record<ReasonKey, Reason>>;
+  shareCard?: {
+    headline?: string;
+    badge?: string;
+    score?: number;
+    domain?: string;
+    timestamp?: string;
+  };
+};
+
+type Params = {
+  scanId?: string;
+  payload?: string;
+};
+
+function safeJsonParse<T>(value: string | undefined): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function badgeLabel(badge?: ScanResult["badge"]) {
+  if (badge === "VERIFIED") return "✅ VERIFIED";
+  if (badge === "UNVERIFIED") return "⚠️ UNVERIFIED";
+  return "❌ HIGH RISK";
+}
+
+function badgeHint(badge?: ScanResult["badge"]) {
+  if (badge === "VERIFIED") return "Consistent signals across content and source.";
+  if (badge === "UNVERIFIED") return "Not enough evidence. Use context.";
+  return "Multiple manipulation/scam signals detected.";
+}
+
+function clampScore(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(100, Math.round(x)));
+}
+
+function defaultReasons(): Record<ReasonKey, Reason> {
+  return {
+    A: { title: "Media Integrity", summary: "Signals related to editing or synthetic media." },
+    B: { title: "Duplicate / Re-used Media", summary: "Signals that media may be recycled or mismatched." },
+    C: { title: "Claims vs Public Signals", summary: "Claims compared to available public signals." },
+    D: { title: "Account Signals", summary: "Account patterns that may indicate risk." },
+    E: { title: "Link Safety", summary: "Redirects, suspicious domains, or phishing indicators." },
+    F: { title: "Patterns / Reports", summary: "Signals matching known scam patterns or repeated behaviors." },
+  };
+}
 
 export default function ResultScreen() {
   const router = useRouter();
-  const { t, currentScan, canReport, recordReport, settings } = useApp();
-  const reduceMotion = useReduceMotion();
-  const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
-  const [displayScore, setDisplayScore] = useState(0);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const { scanId, payload } = useLocalSearchParams<Params>();
+
+  const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<ReasonKey, boolean>>({
+    A: false,
+    B: false,
+    C: false,
+    D: false,
+    E: false,
+    F: false,
+  });
+
   const shareCardRef = useRef<View>(null);
 
-  useEffect(() => {
-    if (currentScan) {
-      if (reduceMotion) {
-        fadeAnim.setValue(1);
-        slideAnim.setValue(0);
-        setDisplayScore(currentScan.score);
-        return;
-      }
+  const parsedPayload = useMemo(() => {
+    const decoded = payload ? decodeURIComponent(String(payload)) : "";
+    return safeJsonParse<ScanResult>(decoded);
+  }, [payload]);
 
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start();
+  const result: ScanResult = useMemo(() => {
+    if (parsedPayload) return parsedPayload;
+    return {
+      scanId: scanId ? String(scanId) : undefined,
+      badge: "UNVERIFIED",
+      score: 60,
+      domain: "reail.app",
+      title: "Shared report",
+      reasons: defaultReasons(),
+    };
+  }, [parsedPayload, scanId]);
 
-      const startTime = Date.now();
-      const targetScore = currentScan.score;
-      
-      const animateScore = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / SCORE_ANIMATION_DURATION, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const current = Math.round(eased * targetScore);
-        setDisplayScore(current);
-        
-        if (progress < 1) {
-          requestAnimationFrame(animateScore);
-        }
-      };
-      
-      requestAnimationFrame(animateScore);
-      
-      maybeRequestReviewAfterScan(currentScan.badge);
-    }
-  }, [currentScan, fadeAnim, slideAnim, reduceMotion]);
+  const badge = result.badge ?? "UNVERIFIED";
+  const score = clampScore(result.score ?? 0);
+  const domain = result.domain ?? (result.url ? (() => {
+    try { return new URL(result.url).hostname; } catch { return "unknown"; }
+  })() : "unknown");
 
-  const toggleReason = useCallback((key: string) => {
-    setExpandedReasons(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
+  const reasonsMerged: Record<ReasonKey, Reason> = useMemo(() => {
+    const base = defaultReasons();
+    const r = result.reasons || {};
+    return {
+      A: { ...base.A, ...r.A },
+      B: { ...base.B, ...r.B },
+      C: { ...base.C, ...r.C },
+      D: { ...base.D, ...r.D },
+      E: { ...base.E, ...r.E },
+      F: { ...base.F, ...r.F },
+    };
+  }, [result.reasons]);
+
+  const disclaimerShort = "Risk-based AI verification";
+  const disclaimerFull =
+    "REAiL provides risk-based verification using public signals and automated analysis. It does not claim absolute truth.";
+  const shareCardFooter = "Risk-based verification • Not absolute truth";
+
+  const onShareText = async () => {
+    const lines: string[] = [];
+    lines.push("REAiL Scan Result");
+    lines.push(`${badgeLabel(badge)} • Score: ${score}/100`);
+    lines.push(`Domain: ${domain}`);
+    lines.push("");
+    lines.push("Why (A–F):");
+    (["A", "B", "C", "D", "E", "F"] as ReasonKey[]).forEach((k) => {
+      const item = reasonsMerged[k];
+      lines.push(`${k}) ${item.title}: ${item.summary}`);
     });
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
-  }, []);
+    lines.push("");
+    lines.push(shareCardFooter);
 
-  const handleBack = useCallback(() => {
-    router.back();
-  }, [router]);
+    await Share.share({ message: lines.join("\n") });
+  };
 
-  const handleShare = useCallback(async () => {
-    if (!currentScan) return;
+  const onShareImage = async () => {
     try {
-      await shareResult(currentScan, settings?.language || 'en');
-    } catch (error) {
-      console.log('Share error:', error);
-    }
-  }, [currentScan, settings]);
-
-  const handleOpenLink = useCallback(async () => {
-    if (!currentScan || currentScan.url.startsWith('screenshot://')) return;
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    await openScannedLink(currentScan.url);
-  }, [currentScan]);
-
-  const handleSave = useCallback(() => {
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    Alert.alert('Saved', 'Scan saved to your history.');
-  }, []);
-
-  const handleReport = useCallback(() => {
-    if (!canReport()) {
-      Alert.alert('Rate Limit', 'You have reached the maximum number of reports for today. Please try again tomorrow.');
-      return;
-    }
-    setShowReportModal(true);
-  }, [canReport]);
-
-  const submitReport = useCallback((category: string) => {
-    recordReport();
-    setShowReportModal(false);
-    setSelectedCategory(null);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    Alert.alert('Report Submitted', `Thank you for reporting this as "${category}". This helps keep the internet safe.`);
-  }, [recordReport]);
-
-  const handleShareImage = useCallback(async () => {
-    if (!currentScan || !shareCardRef.current) return;
-    
-    if (Platform.OS === 'web') {
-      Alert.alert('Share as Image', 'Image sharing is not available on web. Use the Share Report button instead.');
-      return;
-    }
-
-    try {
-      setIsCapturing(true);
-      
       const uri = await captureRef(shareCardRef, {
-        format: 'png',
+        format: "png",
         quality: 1,
-        result: 'tmpfile',
       });
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'image/png',
-          dialogTitle: 'Share REAiL Scan Result',
-        });
-      } else {
-        Alert.alert('Sharing not available', 'Sharing is not available on this device.');
-      }
-    } catch (error) {
-      console.log('Share image error:', error);
-      Alert.alert('Error', 'Failed to capture image. Please try again.');
-    } finally {
-      setIsCapturing(false);
-    }
-  }, [currentScan]);
-
-  if (!currentScan) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No scan result available</Text>
-            <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-              <Text style={styles.backButtonText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  const getVerdict = () => {
-    switch (currentScan.badge) {
-      case 'VERIFIED':
-        return t.verdictVerified;
-      case 'UNVERIFIED':
-        return t.verdictUnverified;
-      case 'HIGH_RISK':
-        return t.verdictHighRisk;
+      await Share.share(
+        Platform.OS === "ios"
+          ? { url: uri }
+          : { message: shareCardFooter, url: uri }
+      );
+    } catch {
+      await onShareText();
     }
   };
 
-  const getScoreColor = () => {
-    if (currentScan.score >= 80) return Colors.verified;
-    if (currentScan.score >= 50) return Colors.unverified;
-    return Colors.highRisk;
+  const onOpenLink = async () => {
+    if (!result.url) return;
+    try {
+      await WebBrowser.openBrowserAsync(result.url);
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleExpand = (k: ReasonKey) => {
+    setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   };
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
-            <ArrowLeft size={24} color={Colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{t.result}</Text>
-          <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
-            <Share2 size={22} color={Colors.primary} />
-          </TouchableOpacity>
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+          <Text style={styles.headerBtnText}>←</Text>
+        </Pressable>
+        <Text style={styles.headerTitle}>Result</Text>
+        <Pressable onPress={onShareText} style={styles.headerBtn}>
+          <Text style={styles.headerBtnText}>Share</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.card}>
+          <Text style={styles.domainText}>{domain}</Text>
+
+          <View style={styles.spacer10} />
+
+          <Text style={styles.badgeText}>{badgeLabel(badge)}</Text>
+          <Text style={styles.scoreText}>Trust Score: {score}</Text>
+
+          <Pressable onPress={() => setDisclaimerOpen(true)} style={styles.disclaimerPill}>
+            <Text style={styles.disclaimerPillText}>
+              {disclaimerShort} <Text style={styles.disclaimerInfoIcon}>ⓘ</Text>
+            </Text>
+          </Pressable>
+
+          <View style={styles.spacer10} />
+          <Text style={styles.verdictText}>{badgeHint(badge)}</Text>
+
+          {!!result.url && (
+            <Pressable onPress={onOpenLink} style={styles.openLinkBtn}>
+              <Text style={styles.openLinkText}>Open scanned link</Text>
+            </Pressable>
+          )}
+
+          <View style={styles.spacer14} />
+
+          <View style={styles.actionsRow}>
+            <Pressable onPress={() => router.replace("/")} style={styles.secondaryBtn}>
+              <Text style={styles.secondaryBtnText}>Back</Text>
+            </Pressable>
+            <Pressable onPress={onShareText} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>SHARE REPORT</Text>
+            </Pressable>
+          </View>
+
+          <Pressable onPress={onShareImage} style={styles.shareImageBtn}>
+            <Text style={styles.shareImageText}>SHARE AS IMAGE</Text>
+          </Pressable>
+
+          <View style={styles.spacer10} />
+          <Text style={styles.footerDisclaimer}>{shareCardFooter}</Text>
         </View>
 
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <Animated.View 
-            style={[
-              styles.badgeSection,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              }
-            ]}
-          >
-            <Badge type={currentScan.badge} size="large" />
-            
-            <View style={styles.scoreContainer}>
-              <Text style={styles.scoreLabel}>{t.trustScore}</Text>
-              <View style={styles.scoreRow}>
-                <Text style={[styles.scoreValue, { color: getScoreColor() }]}>
-                  {displayScore}
-                </Text>
-                <Text style={styles.scoreMax}>/100</Text>
-              </View>
-              <View style={[styles.scoreBar, { backgroundColor: Colors.backgroundTertiary }]}>
-                <Animated.View 
-                  style={[
-                    styles.scoreBarFill,
-                    { 
-                      backgroundColor: getScoreColor(),
-                      width: `${displayScore}%`,
-                    }
-                  ]} 
-                />
-              </View>
-            </View>
+        <View style={styles.spacer14} />
 
-            <View style={styles.domainRow}>
-              <Text style={styles.domain}>{currentScan.domain}</Text>
-              {currentScan.url && !currentScan.url.startsWith('screenshot://') && (
-                <TouchableOpacity onPress={handleOpenLink} style={styles.openLinkButton}>
-                  <ExternalLink size={16} color={Colors.primary} />
-                </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Why (A–F)</Text>
+
+        {(Object.keys(reasonsMerged) as ReasonKey[]).map((k) => {
+          const item = reasonsMerged[k];
+          const isOpen = expanded[k];
+          return (
+            <View key={k} style={styles.reasonCard}>
+              <Pressable onPress={() => toggleExpand(k)} style={styles.reasonHeader}>
+                <Text style={styles.reasonKey}>{k}</Text>
+                <View style={styles.reasonContentWrapper}>
+                  <Text style={styles.reasonTitle}>{item.title}</Text>
+                  <Text style={styles.reasonSummary}>{item.summary}</Text>
+                </View>
+                <Text style={styles.chevron}>{isOpen ? "▾" : "▸"}</Text>
+              </Pressable>
+
+              {isOpen && (
+                <View style={styles.reasonBody}>
+                  {!!item.details?.length && (
+                    <>
+                      <Text style={styles.reasonBodyTitle}>Details</Text>
+                      {item.details.map((d, i) => (
+                        <Text key={i} style={styles.reasonBullet}>• {d}</Text>
+                      ))}
+                    </>
+                  )}
+
+                  {!!item.whatWouldVerify?.length && (
+                    <>
+                      <View style={styles.spacer10} />
+                      <Text style={styles.reasonBodyTitle}>What would verify this?</Text>
+                      {item.whatWouldVerify.map((d, i) => (
+                        <Text key={i} style={styles.reasonBullet}>• {d}</Text>
+                      ))}
+                    </>
+                  )}
+                </View>
               )}
             </View>
-            <Text style={styles.verdict}>{getVerdict()}</Text>
-            
-            <View style={styles.aiPoweredBadge}>
-              <Sparkles size={12} color={Colors.accent} />
-              <Text style={styles.aiPoweredText}>AI-Powered Analysis</Text>
-            </View>
+          );
+        })}
 
-            <TouchableOpacity 
-              style={styles.disclaimerBadge} 
-              onPress={() => setShowDisclaimerModal(true)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.disclaimerBadgeText}>{t.disclaimerShort}</Text>
-              <Info size={12} color={Colors.textTertiary} />
-            </TouchableOpacity>
-          </Animated.View>
+        <View style={styles.spacer18} />
 
-          <View style={styles.reasonsSection}>
-            <Text style={styles.sectionTitle}>{t.whyTitle}</Text>
-            
-            {REASON_KEYS.map((key) => {
-              const reason = currentScan.reasons[key];
-              const isExpanded = expandedReasons.has(key);
-              
-              return (
-                <TouchableOpacity 
-                  key={key}
-                  style={styles.reasonCard}
-                  onPress={() => toggleReason(key)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.reasonHeader}>
-                    <View style={styles.reasonKeyBadge}>
-                      <Text style={styles.reasonKey}>{key}</Text>
-                    </View>
-                    <View style={styles.reasonContent}>
-                      <Text style={styles.reasonTitle}>{reason.title}</Text>
-                      <Text style={styles.reasonSummary}>{reason.summary}</Text>
-                    </View>
-                    {isExpanded ? (
-                      <ChevronUp size={20} color={Colors.textTertiary} />
-                    ) : (
-                      <ChevronDown size={20} color={Colors.textTertiary} />
-                    )}
-                  </View>
-                  
-                  {isExpanded && (
-                    <View style={styles.reasonDetails}>
-                      {reason.details.map((detail, index) => (
-                        <View key={index} style={styles.detailRow}>
-                          <View style={styles.detailBullet} />
-                          <Text style={styles.detailText}>{detail}</Text>
-                        </View>
-                      ))}
-                      {reason.suggestion && (
-                        <View style={styles.suggestionBox}>
-                          <Text style={styles.suggestionLabel}>{t.whatWouldVerify}</Text>
-                          <Text style={styles.suggestionText}>{reason.suggestion}</Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+        <View style={styles.shareCardWrapper}>
+          <Text style={styles.sectionTitle}>Share Card</Text>
+
+          <View ref={shareCardRef} collapsable={false} style={styles.shareCard}>
+            <Text style={styles.shareCardHeadline}>REAiL Scan Result</Text>
+            <Text style={styles.shareCardBadge}>{badgeLabel(badge)}</Text>
+            <Text style={styles.shareCardMeta}>Score: {score}/100</Text>
+            <Text style={styles.shareCardMeta}>Domain: {domain}</Text>
+            <Text style={styles.shareCardFooter}>{shareCardFooter}</Text>
           </View>
+        </View>
+      </ScrollView>
 
-          <TouchableOpacity style={styles.primaryActionButton} onPress={handleShare}>
-              <Share2 size={20} color={Colors.text} />
-              <Text style={styles.primaryActionText}>{t.shareReport}</Text>
-            </TouchableOpacity>
+      <Modal
+        visible={disclaimerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDisclaimerOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setDisclaimerOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Verification disclaimer</Text>
+            <Text style={styles.modalBody}>{disclaimerFull}</Text>
 
-          <View style={styles.actionsSection}>
-            <TouchableOpacity style={styles.actionButton} onPress={handleSave}>
-              <Bookmark size={20} color={Colors.text} />
-              <Text style={styles.actionText}>{t.save}</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={[styles.actionButton, styles.dangerAction]} onPress={handleReport}>
-              <AlertOctagon size={20} color={Colors.highRisk} />
-              <Text style={[styles.actionText, styles.dangerText]}>{t.reportScam}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.shareCardSection}>
-            <View ref={shareCardRef} style={styles.shareCard} collapsable={false}>
-              <View style={styles.shareCardHeader}>
-                <Logo size="small" />
-                <Badge type={currentScan.badge} size="small" />
-              </View>
-              <Text style={styles.shareCardDomain}>{currentScan.domain}</Text>
-              <Text style={styles.shareCardScore}>Score: {currentScan.score}/100</Text>
-              <Text style={styles.shareCardFooter}>{t.verifiedBy}</Text>
-              <Text style={styles.shareCardLegalFooter}>{t.shareCardFooter}</Text>
-            </View>
-            
-            <TouchableOpacity 
-              style={[styles.shareImageButton, isCapturing && styles.shareImageButtonDisabled]} 
-              onPress={handleShareImage}
-              disabled={isCapturing}
-            >
-              <Image size={18} color={isCapturing ? Colors.textTertiary : Colors.primary} />
-              <Text style={[styles.shareImageText, isCapturing && styles.shareImageTextDisabled]}>
-                {isCapturing ? 'Capturing...' : t.shareAsImage}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.disclaimerSection}>
-            <Text style={styles.disclaimerText}>{t.disclaimer}</Text>
-          </View>
-        </ScrollView>
-
-        <Modal
-          visible={showDisclaimerModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowDisclaimerModal(false)}
-        >
-          <BlurView intensity={Platform.OS === 'ios' ? 50 : 0} tint="dark" style={styles.modalOverlay}>
-            <View style={styles.disclaimerModalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{t.disclaimerShort}</Text>
-                <TouchableOpacity onPress={() => setShowDisclaimerModal(false)} style={styles.modalClose}>
-                  <X size={24} color={Colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.disclaimerModalText}>{t.disclaimerFull}</Text>
-              <TouchableOpacity
-                style={styles.disclaimerModalButton}
-                onPress={() => setShowDisclaimerModal(false)}
-              >
-                <Text style={styles.disclaimerModalButtonText}>Got it</Text>
-              </TouchableOpacity>
-            </View>
-          </BlurView>
-        </Modal>
-
-        <Modal
-          visible={showReportModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowReportModal(false)}
-        >
-          <BlurView intensity={Platform.OS === 'ios' ? 50 : 0} tint="dark" style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{t.reportScam}</Text>
-                <TouchableOpacity onPress={() => setShowReportModal(false)} style={styles.modalClose}>
-                  <X size={24} color={Colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.modalSubtitle}>{t.selectCategory}</Text>
-              {REPORT_CATEGORIES.map((cat) => (
-                <TouchableOpacity
-                  key={cat.key}
-                  style={[
-                    styles.categoryOption,
-                    selectedCategory === cat.key && styles.categoryOptionSelected,
-                  ]}
-                  onPress={() => setSelectedCategory(cat.key)}
-                >
-                  <Text style={[
-                    styles.categoryText,
-                    selectedCategory === cat.key && styles.categoryTextSelected,
-                  ]}>
-                    {cat.label}
-                  </Text>
-                  {selectedCategory === cat.key && (
-                    <Check size={18} color={Colors.primary} />
-                  )}
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={[
-                  styles.submitReportButton,
-                  !selectedCategory && styles.submitReportButtonDisabled,
-                ]}
-                onPress={() => selectedCategory && submitReport(selectedCategory)}
-                disabled={!selectedCategory}
-              >
-                <Text style={styles.submitReportText}>{t.submitReport}</Text>
-              </TouchableOpacity>
-            </View>
-          </BlurView>
-        </Modal>
-      </SafeAreaView>
+            <Pressable style={styles.modalCloseBtn} onPress={() => setDisclaimerOpen(false)}>
+              <Text style={styles.modalCloseText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -489,472 +325,293 @@ export default function ResultScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeArea: {
-    flex: 1,
+    backgroundColor: "#0b0c10",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    height: 56,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  headerButton: {
-    padding: 8,
+  headerBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBtnText: {
+    color: "white",
+    fontSize: 14,
+    opacity: 0.9,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  scrollView: {
-    flex: 1,
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700" as const,
+    opacity: 0.95,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
     paddingBottom: 40,
   },
-  badgeSection: {
-    alignItems: 'center',
-    marginBottom: 32,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    backgroundColor: Colors.card,
-    borderRadius: 24,
+  card: {
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  scoreContainer: {
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 16,
-    width: '100%',
-  },
-  scoreLabel: {
+  domainText: {
+    color: "white",
+    opacity: 0.8,
     fontSize: 12,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
   },
-  scoreRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  scoreValue: {
-    fontSize: 56,
-    fontWeight: '700' as const,
-  },
-  scoreMax: {
+  badgeText: {
+    color: "white",
     fontSize: 22,
-    color: Colors.textTertiary,
-    marginLeft: 2,
+    fontWeight: "800" as const,
   },
-  scoreBar: {
-    width: '80%',
-    height: 6,
-    borderRadius: 3,
-    marginTop: 16,
-    overflow: 'hidden',
+  scoreText: {
+    color: "white",
+    opacity: 0.9,
+    marginTop: 6,
+    fontSize: 14,
   },
-  scoreBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  domainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  domain: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  openLinkButton: {
-    padding: 4,
-  },
-  aiPoweredBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: Colors.accent + '15',
-    borderWidth: 1,
-    borderColor: Colors.accent + '30',
-  },
-  aiPoweredText: {
-    fontSize: 10,
-    fontWeight: '600' as const,
-    color: Colors.accent,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  disclaimerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 12,
-    paddingHorizontal: 10,
+  disclaimerPill: {
+    marginTop: 8,
+    alignSelf: "center",
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  disclaimerBadgeText: {
-    fontSize: 10,
-    color: Colors.textTertiary,
-  },
-  disclaimerModalContent: {
-    backgroundColor: Colors.card,
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 320,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  disclaimerModalText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 22,
-    marginBottom: 20,
+  disclaimerPillText: {
+    color: "white",
+    fontSize: 12,
+    opacity: 0.85,
   },
-  disclaimerModalButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
+  disclaimerInfoIcon: {
+    color: "white",
+    opacity: 0.9,
   },
-  disclaimerModalButtonText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
+  verdictText: {
+    color: "white",
+    opacity: 0.75,
+    marginTop: 4,
+    fontSize: 13,
+    textAlign: "center",
   },
-  verdict: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    paddingHorizontal: 20,
+  openLinkBtn: {
+    marginTop: 12,
+    alignSelf: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  reasonsSection: {
-    marginBottom: 24,
+  openLinkText: {
+    color: "white",
+    fontWeight: "700" as const,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  primaryBtn: {
+    flex: 1,
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "rgba(120,180,255,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(120,180,255,0.35)",
+  },
+  primaryBtnText: {
+    color: "white",
+    fontWeight: "800" as const,
+  },
+  secondaryBtn: {
+    width: 90,
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  secondaryBtnText: {
+    color: "white",
+    fontWeight: "700" as const,
+    opacity: 0.9,
+  },
+  shareImageBtn: {
+    marginTop: 10,
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  shareImageText: {
+    color: "white",
+    fontWeight: "800" as const,
+    opacity: 0.95,
+  },
+  footerDisclaimer: {
+    color: "white",
+    opacity: 0.65,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 10,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 16,
+    color: "white",
+    fontSize: 14,
+    fontWeight: "800" as const,
+    marginBottom: 8,
+    opacity: 0.9,
   },
   reasonCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    overflow: 'hidden',
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    marginBottom: 10,
+    overflow: "hidden",
   },
   reasonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    gap: 10,
     padding: 14,
-  },
-  reasonKeyBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+    alignItems: "center",
   },
   reasonKey: {
-    fontSize: 13,
-    fontWeight: '700' as const,
-    color: Colors.accent,
+    color: "white",
+    fontWeight: "900" as const,
+    width: 18,
+    opacity: 0.9,
   },
-  reasonContent: {
+  reasonContentWrapper: {
     flex: 1,
   },
   reasonTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
+    color: "white",
+    fontWeight: "800" as const,
     marginBottom: 2,
   },
   reasonSummary: {
+    color: "white",
+    opacity: 0.75,
     fontSize: 12,
-    color: Colors.textSecondary,
   },
-  reasonDetails: {
-    padding: 14,
-    paddingTop: 0,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+  chevron: {
+    color: "white",
+    opacity: 0.7,
+    fontSize: 16,
   },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 10,
+  reasonBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
   },
-  detailBullet: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.textTertiary,
-    marginTop: 6,
-    marginRight: 10,
+  reasonBodyTitle: {
+    color: "white",
+    fontWeight: "800" as const,
+    opacity: 0.9,
+    marginTop: 8,
   },
-  detailText: {
-    flex: 1,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 18,
+  reasonBullet: {
+    color: "white",
+    opacity: 0.78,
+    fontSize: 12,
+    marginTop: 4,
   },
-  suggestionBox: {
-    marginTop: 14,
-    padding: 12,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 8,
-  },
-  suggestionLabel: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: Colors.accent,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  suggestionText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-  },
-  actionsSection: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 24,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  primaryAction: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  dangerAction: {
-    borderColor: Colors.highRisk,
-  },
-  actionText: {
-    fontSize: 11,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  dangerText: {
-    color: Colors.highRisk,
-  },
-  shareCardSection: {
-    alignItems: 'center',
+  shareCardWrapper: {
+    marginTop: 4,
   },
   shareCard: {
-    width: '100%',
-    backgroundColor: Colors.card,
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    marginBottom: 12,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
-  shareCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 16,
+  shareCardHeadline: {
+    color: "white",
+    fontWeight: "900" as const,
+    fontSize: 16,
+    marginBottom: 8,
   },
-  shareCardDomain: {
+  shareCardBadge: {
+    color: "white",
+    fontWeight: "900" as const,
     fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  shareCardScore: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 12,
+  shareCardMeta: {
+    color: "white",
+    opacity: 0.85,
+    fontSize: 12,
+    marginBottom: 3,
   },
   shareCardFooter: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  shareCardLegalFooter: {
-    fontSize: 8,
-    color: Colors.textTertiary,
-    marginTop: 8,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-  shareImageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-  },
-  shareImageText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  shareImageButtonDisabled: {
-    opacity: 0.6,
-  },
-  shareImageTextDisabled: {
-    color: Colors.textTertiary,
-  },
-  primaryActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.primary,
-    borderRadius: 16,
-    paddingVertical: 16,
-    marginBottom: 12,
-  },
-  primaryActionText: {
-    fontSize: 15,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  disclaimerSection: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  disclaimerText: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textAlign: 'center',
-    lineHeight: 16,
+    marginTop: 10,
+    fontSize: 10,
+    opacity: 0.75,
+    color: "white",
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
   },
-  modalContent: {
-    backgroundColor: Colors.card,
-    borderRadius: 20,
-    padding: 20,
-    width: '100%',
-    maxWidth: 340,
+  modalCard: {
+    backgroundColor: "rgba(20,20,22,1)",
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  modalClose: {
-    padding: 4,
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 16,
-  },
-  categoryOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  categoryOptionSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '15',
-  },
-  categoryText: {
-    fontSize: 14,
-    color: Colors.text,
-  },
-  categoryTextSelected: {
-    fontWeight: '600' as const,
-  },
-  submitReportButton: {
-    backgroundColor: Colors.highRisk,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  submitReportButtonDisabled: {
-    opacity: 0.5,
-  },
-  submitReportText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
+    color: "white",
     fontSize: 16,
-    color: Colors.textSecondary,
-    marginBottom: 16,
+    fontWeight: "800" as const,
+    marginBottom: 8,
   },
-  backButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+  modalBody: {
+    color: "white",
+    fontSize: 13,
+    lineHeight: 18,
+    opacity: 0.9,
+    marginBottom: 12,
   },
-  backButtonText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
+  modalCloseBtn: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  modalCloseText: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "800" as const,
+  },
+  spacer10: {
+    height: 10,
+  },
+  spacer14: {
+    height: 14,
+  },
+  spacer18: {
+    height: 18,
   },
 });
