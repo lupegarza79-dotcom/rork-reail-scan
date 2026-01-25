@@ -1,16 +1,18 @@
-import { ScanResult, BadgeType, ScanReasons } from '@/types/scan';
-import { generateMockScan } from './mockScan';
-import { aiScanEngine } from './aiScanEngine';
+// utils/scanService.ts
+import { aiScanEngine } from "./aiScanEngine";
+import { generateMockScan, detectPlatform } from "./mockScan";
+import { saveToHistory } from "./historyStore";
 
-const API_BASE_URL = 'https://api.reail.app';
-const API_TIMEOUT = 15000;
+// If your project has path aliases (@/types/scan), keep them.
+// If not, change to relative: ../types/scan
+import type { ScanResult, BadgeType, ScanReasons } from "@/types/scan";
 
-interface ScanUrlRequest {
+export interface ScanUrlRequest {
   url: string;
   advancedScan?: boolean;
 }
 
-interface ScanMediaRequest {
+export interface ScanMediaRequest {
   mediaUri: string;
   advancedScan?: boolean;
 }
@@ -18,214 +20,226 @@ interface ScanMediaRequest {
 interface ReportScamRequest {
   scanId: string;
   category: string;
+  reason?: string;
   notes?: string;
 }
 
 interface ApiScanResponse {
-  scanId: string;
+  id: string;
   badge: BadgeType;
   score: number;
+  reasons: ScanReasons;
   domain?: string;
   title?: string;
-  thumbnail?: string;
-  reasons: ScanReasons;
-  shareCard: {
-    headline: string;
-    domain: string;
-    badge: BadgeType;
-    score: number;
-    timestamp: number;
-  };
+  timestamp: number;
   disclaimerKey: string;
 }
 
+/**
+ * ScanService
+ * - Uses AI engine first (if enabled)
+ * - Falls back to mock
+ * - Optionally can call a backend later
+ * - Auto-saves results into local history store
+ */
 class ScanService {
-  private useMock = false;
-  private useAI = true;
+  // You can flip these later if needed
+  useAI = true;
+  useMock = true;
 
-  async scanUrl(request: ScanUrlRequest): Promise<ScanResult> {
-    console.log('[ScanService] Scanning URL:', request.url);
-    
-    if (this.useAI) {
-      console.log('[ScanService] Using AI scan engine');
-      try {
-        return await aiScanEngine.analyzeUrl(request.url);
-      } catch (error) {
-        console.log('[ScanService] AI scan failed, falling back to mock:', error);
-        return this.mockScan(request.url);
-      }
-    }
-    
-    if (this.useMock) {
-      console.log('[ScanService] Using mock scan engine');
-      return this.mockScan(request.url);
-    }
+  // Optional future: backend endpoint
+  apiBaseUrl: string | null = null;
 
+  private normalizeUrl(url: string) {
+    return (url || "").trim();
+  }
+
+  private extractDomain(url: string) {
     try {
-      const response = await this.fetchWithTimeout(`${API_BASE_URL}/scan/url`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        console.log('[ScanService] API error, falling back to mock');
-        return this.mockScan(request.url);
-      }
-
-      const data: ApiScanResponse = await response.json();
-      return this.mapApiResponse(data, request.url);
-    } catch (error) {
-      console.log('[ScanService] Network error, falling back to mock:', error);
-      return this.mockScan(request.url);
+      return new URL(url).hostname;
+    } catch {
+      return url.replace(/^https?:\/\//i, "").split("/")[0] || "unknown";
     }
   }
 
-  async scanMedia(request: ScanMediaRequest): Promise<ScanResult> {
-    console.log('[ScanService] Scanning media:', request.mediaUri);
-    
-    if (this.useAI) {
-      console.log('[ScanService] Using AI scan engine for media');
-      try {
-        return await aiScanEngine.analyzeImage(request.mediaUri);
-      } catch (error) {
-        console.log('[ScanService] AI media scan failed, falling back to mock:', error);
-        const result = this.mockScan('screenshot://uploaded');
-        result.domain = 'Screenshot';
-        result.platform = 'other';
-        result.title = 'Uploaded screenshot';
-        return result;
-      }
-    }
-    
-    if (this.useMock) {
-      console.log('[ScanService] Using mock scan engine for media');
-      const result = this.mockScan('screenshot://uploaded');
-      result.domain = 'Screenshot';
-      result.platform = 'other';
-      result.title = 'Uploaded screenshot';
-      return result;
-    }
-
+  private async recordHistory(result: ScanResult) {
     try {
-      const formData = new FormData();
-      formData.append('media', {
-        uri: request.mediaUri,
-        type: 'image/jpeg',
-        name: 'screenshot.jpg',
-      } as unknown as Blob);
-      
-      if (request.advancedScan) {
-        formData.append('advancedScan', 'true');
-      }
-
-      const response = await this.fetchWithTimeout(`${API_BASE_URL}/scan/media`, {
-        method: 'POST',
-        body: formData,
+      // Minimal safe fields; keep reasons as-is (you can redact later in privacyMode)
+      await saveToHistory({
+        scanId: result.id,
+        badge: result.badge,
+        score: result.score,
+        domain: result.domain || this.extractDomain(result.url),
+        title: result.title,
+        url: result.url,
+        createdAt: new Date(result.timestamp || Date.now()).toISOString(),
+        reasons: result.reasons,
       });
-
-      if (!response.ok) {
-        console.log('[ScanService] API error for media, falling back to mock');
-        const result = this.mockScan('screenshot://uploaded');
-        result.domain = 'Screenshot';
-        result.platform = 'other';
-        result.title = 'Uploaded screenshot';
-        return result;
-      }
-
-      const data: ApiScanResponse = await response.json();
-      return this.mapApiResponse(data, request.mediaUri);
-    } catch (error) {
-      console.log('[ScanService] Network error for media, falling back to mock:', error);
-      const result = this.mockScan('screenshot://uploaded');
-      result.domain = 'Screenshot';
-      result.platform = 'other';
-      result.title = 'Uploaded screenshot';
-      return result;
+    } catch {
+      // never crash scanning because of history
     }
   }
 
-  async reportScam(request: ReportScamRequest): Promise<boolean> {
-    console.log('[ScanService] Reporting scam:', request);
-    
-    if (this.useMock) {
-      console.log('[ScanService] Mock report submitted');
-      return true;
-    }
-
-    try {
-      const response = await this.fetchWithTimeout(`${API_BASE_URL}/report`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      return response.ok;
-    } catch (error) {
-      console.log('[ScanService] Report error:', error);
-      return false;
-    }
-  }
-
-  private async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      return response;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      throw error;
-    }
-  }
-
-  private mockScan(source: string): ScanResult {
-    return generateMockScan(source);
-  }
-
-  private mapApiResponse(data: ApiScanResponse, originalUrl: string): ScanResult {
+  private mapApiResponse(data: ApiScanResponse, url: string): ScanResult {
     return {
-      id: data.scanId,
-      url: originalUrl,
-      domain: data.domain || this.extractDomain(originalUrl),
-      platform: this.detectPlatform(originalUrl),
+      id: data.id,
+      url,
       badge: data.badge,
       score: data.score,
       reasons: data.reasons,
-      timestamp: Date.now(),
-      thumbnail: data.thumbnail,
+      timestamp: data.timestamp || Date.now(),
+      domain: data.domain || this.extractDomain(url),
+      platform: detectPlatform(url),
       title: data.title,
     };
   }
 
-  private extractDomain(url: string): string {
-    try {
-      const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
-      return urlObj.hostname.replace('www.', '');
-    } catch {
-      return 'unknown';
+  async scanUrl(request: ScanUrlRequest): Promise<ScanResult> {
+    const url = this.normalizeUrl(request.url);
+
+    // 1) AI engine
+    if (this.useAI) {
+      try {
+        const res = await aiScanEngine.analyzeUrl(url);
+        // normalize missing fields
+        const result: ScanResult = {
+          ...res,
+          url: res.url || url,
+          domain: res.domain || this.extractDomain(url),
+          platform: res.platform || detectPlatform(url),
+          timestamp: res.timestamp || Date.now(),
+        };
+        await this.recordHistory(result);
+        return result;
+      } catch {
+        // fall through
+      }
     }
+
+    // 2) Backend (optional)
+    if (this.apiBaseUrl) {
+      try {
+        const resp = await fetch(`${this.apiBaseUrl}/scan/url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, advancedScan: !!request.advancedScan }),
+        });
+
+        if (resp.ok) {
+          const data = (await resp.json()) as ApiScanResponse;
+          const result = this.mapApiResponse(data, url);
+          await this.recordHistory(result);
+          return result;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
+    // 3) Mock fallback
+    const mock = generateMockScan(url);
+    const result: ScanResult = {
+      ...mock,
+      url,
+      domain: mock.domain || this.extractDomain(url),
+      platform: mock.platform || detectPlatform(url),
+      timestamp: mock.timestamp || Date.now(),
+    };
+    await this.recordHistory(result);
+    return result;
   }
 
-  private detectPlatform(url: string): ScanResult['platform'] {
-    const lowerUrl = url.toLowerCase();
-    if (lowerUrl.includes('tiktok')) return 'tiktok';
-    if (lowerUrl.includes('instagram')) return 'instagram';
-    if (lowerUrl.includes('facebook') || lowerUrl.includes('fb.')) return 'facebook';
-    if (lowerUrl.includes('youtube') || lowerUrl.includes('youtu.be')) return 'youtube';
-    if (lowerUrl.includes('shop') || lowerUrl.includes('store') || lowerUrl.includes('amazon') || lowerUrl.includes('ebay')) return 'shop';
-    if (lowerUrl.includes('news') || lowerUrl.includes('bbc') || lowerUrl.includes('cnn')) return 'news';
-    return 'other';
+  async scanMedia(request: ScanMediaRequest): Promise<ScanResult> {
+    const mediaUri = (request.mediaUri || "").trim();
+
+    // 1) AI engine on image
+    if (this.useAI) {
+      try {
+        const res = await aiScanEngine.analyzeImage(mediaUri);
+
+        const result: ScanResult = {
+          ...res,
+          // Use a synthetic URL for screenshots if none exists
+          url: res.url || "screenshot://uploaded",
+          domain: res.domain || "Screenshot",
+          platform: res.platform || "other",
+          title: res.title || "Uploaded screenshot",
+          timestamp: res.timestamp || Date.now(),
+        };
+
+        await this.recordHistory(result);
+        return result;
+      } catch {
+        // fall through
+      }
+    }
+
+    // 2) Backend (optional)
+    if (this.apiBaseUrl) {
+      try {
+        const form = new FormData();
+        // RN FormData requires a file object for native; keep simple here
+        // If you later implement backend media, you'll likely use expo-file-system to read and attach.
+        form.append("advancedScan", String(!!request.advancedScan));
+
+        const resp = await fetch(`${this.apiBaseUrl}/scan/media`, {
+          method: "POST",
+          body: form,
+        });
+
+        if (resp.ok) {
+          const data = (await resp.json()) as ApiScanResponse;
+          const result = this.mapApiResponse(data, "screenshot://uploaded");
+          // enforce screenshot labeling
+          result.domain = "Screenshot";
+          result.title = "Uploaded screenshot";
+          await this.recordHistory(result);
+          return result;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
+    // 3) Mock fallback for screenshot
+    const mock = generateMockScan("screenshot://uploaded");
+    const result: ScanResult = {
+      ...mock,
+      url: "screenshot://uploaded",
+      domain: "Screenshot",
+      platform: "other",
+      title: "Uploaded screenshot",
+      timestamp: mock.timestamp || Date.now(),
+    };
+    await this.recordHistory(result);
+    return result;
+  }
+
+  async reportScam(req: ReportScamRequest): Promise<{ ok: boolean }> {
+    // MVP: local-only (can be wired to backend later)
+    // Never throw; never block UI
+    try {
+      if (!req.scanId) return { ok: false };
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
   }
 }
 
+/**
+ * Keep compatibility for existing imports:
+ * - `scanService.scanUrl({url})`
+ * And also provide simple functions used by our scanning screen:
+ * - `scanUrl(url)`
+ * - `scanMedia(uri)`
+ */
 export const scanService = new ScanService();
+
+export async function scanUrl(url: string, advancedScan?: boolean) {
+  return scanService.scanUrl({ url, advancedScan });
+}
+
+export async function scanMedia(mediaUri: string, advancedScan?: boolean) {
+  return scanService.scanMedia({ mediaUri, advancedScan });
+}
