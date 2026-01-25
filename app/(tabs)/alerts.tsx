@@ -20,6 +20,11 @@ import {
   addWatch,
   seedDemoAlertsIfEmpty,
 } from "../../utils/alertsStore";
+import {
+  fetchAlerts,
+  markAlertReadApi,
+  markAllAlertsReadApi,
+} from "../../utils/api";
 import Colors from "@/constants/colors";
 
 function badgeEmoji(b: ReailAlert["badge"]) {
@@ -37,6 +42,28 @@ export default function AlertsScreen() {
     useCallback(() => {
       let active = true;
       (async () => {
+        // Try backend first
+        const remote = await fetchAlerts();
+        if (!active) return;
+
+        if (remote?.items?.length) {
+          const mapped: ReailAlert[] = remote.items.map((x: any) => ({
+            id: x.id,
+            createdAt: x.created_at,
+            entityType: x.entity_type,
+            entityKey: x.entity_key,
+            scanId: x.scan_id,
+            badge: x.badge,
+            score: x.score,
+            message: x.message,
+            topReasons: x.top_reasons || [],
+            readAt: x.read_at,
+          }));
+          setAlerts(mapped);
+          return;
+        }
+
+        // Fallback to local demo
         const seeded = await seedDemoAlertsIfEmpty();
         const arr = seeded?.length ? seeded : await loadAlerts();
         if (active) setAlerts(arr);
@@ -58,6 +85,8 @@ export default function AlertsScreen() {
   }, [alerts, q]);
 
   const onOpen = async (a: ReailAlert) => {
+    // Try backend first, fallback to local
+    await markAlertReadApi(a.id);
     const merged = await markAlertRead(a.id);
     setAlerts(merged);
 
@@ -97,6 +126,8 @@ export default function AlertsScreen() {
   };
 
   const onMarkAllRead = async () => {
+    // Try backend first, fallback to local
+    await markAllAlertsReadApi();
     const merged = await markAllRead();
     setAlerts(merged);
   };

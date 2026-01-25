@@ -4,6 +4,7 @@ import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
 import { cacheScanResult } from "./scanCache";
+import { postScanUrl } from "./api";
 
 import type { ScanResult, BadgeType, ScanReasons } from "@/types/scan";
 
@@ -171,6 +172,25 @@ class ScanService {
           platform: res.platform || detectPlatform(url),
           timestamp: res.timestamp || Date.now(),
         };
+
+        // Send to backend for canonical scanId (cross-device)
+        try {
+          const s = await getSettingsCached();
+          const sendReasons = !s.privacyMode ? result.reasons : undefined;
+          const server = await postScanUrl({
+            url,
+            score: result.score,
+            reasons: sendReasons,
+            title: !s.privacyMode ? result.title : undefined,
+            entityType: "domain",
+            entityKey: this.extractDomain(url),
+          });
+          if (server?.id) {
+            result.id = server.id;
+          }
+        } catch {
+          // never block scan if server fails
+        }
 
         await this.recordLocalStorage(result);
         return result;

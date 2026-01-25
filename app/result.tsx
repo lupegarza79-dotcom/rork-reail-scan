@@ -15,6 +15,7 @@ import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanResultById } from "../utils/api";
+import { buildWebResultUrl } from "../utils/deepLinking";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -199,6 +200,10 @@ export default function ResultScreen() {
     lines.push("REAiL Scan Result");
     lines.push(`${badgeLabel(badge)} • Score: ${score}/100`);
     lines.push(`Domain: ${domain}`);
+    const scanIdToShare = result?.scanId || (result as any)?.id;
+    if (scanIdToShare) {
+      lines.push(`Report: ${buildWebResultUrl(scanIdToShare)}`);
+    }
     lines.push("");
     lines.push("Why (A–F):");
     (["A", "B", "C", "D", "E", "F"] as ReasonKey[]).forEach((k) => {
@@ -217,10 +222,14 @@ export default function ResultScreen() {
         format: "png",
         quality: 1,
       });
+      const scanIdToShare = result?.scanId || (result as any)?.id;
+      const shareMsg = scanIdToShare
+        ? `${shareCardFooter}\n${buildWebResultUrl(scanIdToShare)}`
+        : shareCardFooter;
       await Share.share(
         Platform.OS === "ios"
           ? { url: uri }
-          : { message: shareCardFooter, url: uri }
+          : { message: shareMsg, url: uri }
       );
     } catch {
       await onShareText();
