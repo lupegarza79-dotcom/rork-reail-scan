@@ -1,258 +1,266 @@
-import React, { useState, useCallback, useMemo } from 'react';
+// app/(tabs)/history.tsx
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
   TextInput,
-  Alert,
+  Pressable,
+  FlatList,
   Share,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, Trash2 } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
-import { useApp } from '@/contexts/AppContext';
-import { FilterType, ScanResult } from '@/types/scan';
-import ScanCard from '@/components/ScanCard';
+  Alert,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 
-const FILTERS: { key: FilterType; labelKey: 'all' | 'verified' | 'unverified' | 'highRisk' }[] = [
-  { key: 'all', labelKey: 'all' },
-  { key: 'verified', labelKey: 'verified' },
-  { key: 'unverified', labelKey: 'unverified' },
-  { key: 'high_risk', labelKey: 'highRisk' },
-];
+type Badge = "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
+
+type ScanItem = {
+  scanId?: string;
+  badge: Badge;
+  score: number;
+  domain: string;
+  title?: string;
+  createdAt: string; // ISO
+  reasons?: any;
+  url?: string;
+};
+
+const STORAGE_KEY = "reail_scan_history_v1";
+
+function clampScore(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(100, Math.round(x)));
+}
+
+function badgeLabel(b: Badge) {
+  if (b === "VERIFIED") return "✅";
+  if (b === "UNVERIFIED") return "⚠️";
+  return "❌";
+}
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { t, getFilteredScans, setCurrentScan, clearHistory } = useApp();
-  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-  const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredScans = useMemo(() => {
-    const scans = getFilteredScans(activeFilter);
-    if (!searchQuery.trim()) return scans;
-    return scans.filter(scan => 
-      scan.domain.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      scan.url.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [getFilteredScans, activeFilter, searchQuery]);
+  const [items, setItems] = useState<ScanItem[]>([]);
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<"ALL" | Badge>("ALL");
 
-  const handleFilterChange = useCallback((filter: FilterType) => {
-    setActiveFilter(filter);
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync();
-    }
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const parsed = raw ? (JSON.parse(raw) as ScanItem[]) : [];
+        setItems(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setItems([]);
+      }
+    })();
   }, []);
 
-  const handleViewScan = useCallback((scan: ScanResult) => {
-    setCurrentScan(scan);
-    router.push('/result');
-  }, [setCurrentScan, router]);
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return items
+      .filter((it) => (filter === "ALL" ? true : it.badge === filter))
+      .filter((it) => {
+        if (!query) return true;
+        const hay = `${it.domain} ${it.title ?? ""} ${it.badge} ${it.score}`.toLowerCase();
+        return hay.includes(query);
+      })
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }, [items, q, filter]);
 
-  const handleShareScan = useCallback(async (scan: ScanResult) => {
-    try {
-      const badgeText = scan.badge === 'VERIFIED' ? '✅' : scan.badge === 'UNVERIFIED' ? '⚠️' : '❌';
-      const message = `${badgeText} REAiL Scan Result\n\nDomain: ${scan.domain}\nTrust Score: ${scan.score}/100\n\nVerified by REAiL Scan`;
-      await Share.share({ message });
-    } catch (error) {
-      console.log('Share error:', error);
-    }
-  }, []);
-
-  const handleClearHistory = useCallback(() => {
-    Alert.alert(
-      t.clearHistory,
-      'Are you sure you want to clear all scan history?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Clear', 
-          style: 'destructive',
-          onPress: () => {
-            clearHistory();
-            if (Platform.OS !== 'web') {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-          }
-        },
-      ]
-    );
-  }, [clearHistory, t]);
-
-  const getFilterLabel = (labelKey: 'all' | 'verified' | 'unverified' | 'highRisk') => {
-    const labels = {
-      all: t.all,
-      verified: '✓',
-      unverified: '⚠',
-      highRisk: '✕',
-    };
-    return labels[labelKey];
+  const onOpen = (it: ScanItem) => {
+    const payload = encodeURIComponent(JSON.stringify(it));
+    router.push(`/result?payload=${payload}`);
   };
 
-  const renderItem = useCallback(({ item }: { item: ScanResult }) => (
-    <View style={styles.cardWrapper}>
-      <ScanCard
-        scan={item}
-        onPress={() => handleViewScan(item)}
-        onShare={() => handleShareScan(item)}
-      />
-    </View>
-  ), [handleViewScan, handleShareScan]);
+  const onShare = async (it: ScanItem) => {
+    const msg = [
+      "REAiL Scan Result",
+      `${badgeLabel(it.badge)} ${it.badge} • Score: ${clampScore(it.score)}/100`,
+      `Domain: ${it.domain}`,
+      it.title ? `Title: ${it.title}` : "",
+      it.url ? `Link: ${it.url}` : "",
+      "",
+      "Risk-based verification • Not absolute truth",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
-  const renderEmpty = useCallback(() => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyTitle}>{t.noScansYet}</Text>
-      <Text style={styles.emptySubtitle}>{t.startScanning}</Text>
-    </View>
-  ), [t]);
+    await Share.share({ message: msg });
+  };
+
+  const onClear = () => {
+    Alert.alert("Clear history?", "This will delete all saved scans.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        style: "destructive",
+        onPress: async () => {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+          setItems([]);
+        },
+      },
+    ]);
+  };
+
+  const FilterBtn = ({
+    label,
+    value,
+  }: {
+    label: string;
+    value: "ALL" | Badge;
+  }) => (
+    <Pressable
+      onPress={() => setFilter(value)}
+      style={[
+        styles.filterBtn,
+        filter === value && styles.filterBtnActive,
+      ]}
+    >
+      <Text style={styles.filterText}>{label}</Text>
+    </Pressable>
+  );
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>{t.myScans}</Text>
-          {filteredScans.length > 0 && (
-            <TouchableOpacity onPress={handleClearHistory} style={styles.clearButton}>
-              <Trash2 size={20} color={Colors.highRisk} />
-            </TouchableOpacity>
-          )}
-        </View>
+    <View style={{ flex: 1, backgroundColor: "#0b0c10" }}>
+      <View style={styles.topBar}>
+        <Text style={styles.title}>History</Text>
+        <Pressable onPress={onClear} style={styles.topBtn}>
+          <Text style={styles.topBtnText}>Clear</Text>
+        </Pressable>
+      </View>
 
-        <View style={styles.searchContainer}>
-          <Search size={18} color={Colors.textTertiary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search scans..."
-            placeholderTextColor={Colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-
-        <View style={styles.filtersContainer}>
-          {FILTERS.map((filter) => (
-            <TouchableOpacity
-              key={filter.key}
-              style={[
-                styles.filterChip,
-                activeFilter === filter.key && styles.filterChipActive,
-              ]}
-              onPress={() => handleFilterChange(filter.key)}
-            >
-              <Text style={[
-                styles.filterText,
-                activeFilter === filter.key && styles.filterTextActive,
-              ]}>
-                {getFilterLabel(filter.labelKey)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <FlatList
-          data={filteredScans}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={renderEmpty}
+      <View style={{ padding: 16 }}>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Search scans…"
+          placeholderTextColor="rgba(255,255,255,0.35)"
+          style={styles.search}
+          autoCapitalize="none"
+          autoCorrect={false}
         />
-      </SafeAreaView>
+
+        <View style={{ height: 10 }} />
+
+        <View style={styles.filtersRow}>
+          <FilterBtn label="All" value="ALL" />
+          <FilterBtn label="✅" value="VERIFIED" />
+          <FilterBtn label="⚠️" value="UNVERIFIED" />
+          <FilterBtn label="❌" value="HIGH_RISK" />
+        </View>
+      </View>
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(it, idx) => `${it.scanId ?? it.createdAt}-${idx}`}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        ListEmptyComponent={
+          <View style={{ paddingTop: 30 }}>
+            <Text style={{ color: "white", opacity: 0.7, textAlign: "center" }}>
+              No scans yet.
+            </Text>
+            <Text style={{ color: "white", opacity: 0.5, textAlign: "center", marginTop: 6 }}>
+              Scan a link or screenshot to build your history.
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <Pressable onPress={() => onOpen(item)} style={{ flex: 1 }}>
+              <Text style={styles.cardTop}>
+                {badgeLabel(item.badge)}{" "}
+                <Text style={{ fontWeight: "900" }}>{item.domain}</Text>
+              </Text>
+              <Text style={styles.cardSub}>
+                Score: {clampScore(item.score)}/100 • {new Date(item.createdAt).toLocaleString()}
+              </Text>
+              {!!item.title && (
+                <Text style={styles.cardSub2} numberOfLines={1}>
+                  {item.title}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable onPress={() => onShare(item)} style={styles.shareBtn}>
+              <Text style={styles.shareText}>Share</Text>
+            </Pressable>
+          </View>
+        )}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  clearButton: {
-    padding: 8,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.inputBg,
-    borderRadius: 12,
-    marginHorizontal: 20,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  searchInput: {
-    flex: 1,
-    height: 44,
-    fontSize: 15,
-    color: Colors.text,
-    marginLeft: 10,
-  },
-  filtersContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-    gap: 8,
-  },
-  filterChip: {
+const styles: any = {
+  topBar: {
+    height: 56,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: Colors.backgroundTertiary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  title: { color: "white", fontWeight: "900", fontSize: 16 },
+  topBtn: {
+    minWidth: 60,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBtnText: { color: "white", opacity: 0.85, fontWeight: "800" },
+
+  search: {
+    height: 50,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    color: "white",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  filterChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+
+  filtersRow: { flexDirection: "row", gap: 8 },
+  filterBtn: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    justifyContent: "center",
   },
-  filterText: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
+  filterBtnActive: {
+    backgroundColor: "rgba(120,180,255,0.18)",
+    borderColor: "rgba(120,180,255,0.35)",
   },
-  filterTextActive: {
-    color: Colors.text,
+  filterText: { color: "white", opacity: 0.9, fontWeight: "800" },
+
+  card: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    marginBottom: 10,
   },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+  cardTop: { color: "white", fontSize: 13, opacity: 0.95 },
+  cardSub: { color: "white", opacity: 0.65, marginTop: 4, fontSize: 12 },
+  cardSub2: { color: "white", opacity: 0.75, marginTop: 6, fontSize: 12 },
+
+  shareBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  cardWrapper: {
-    marginBottom: 12,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-  },
-});
+  shareText: { color: "white", fontWeight: "900", opacity: 0.9 },
+};
