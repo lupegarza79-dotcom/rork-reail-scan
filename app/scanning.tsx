@@ -1,479 +1,140 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Shield, Wifi, WifiOff, Sparkles, AlertCircle } from 'lucide-react-native';
-import Colors from '@/constants/colors';
-import { useApp } from '@/contexts/AppContext';
-import { scanService } from '@/utils/scanService';
-import Logo from '@/components/Logo';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
-import { useNetwork } from '@/hooks/useNetwork';
+// app/scanning.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, ActivityIndicator, Pressable } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { scanService } from "../utils/scanService";
+import { useNetwork } from "../hooks/useNetwork";
 
-const SCAN_STEPS = [
-  { key: 'media', labelKey: 'checkMedia' as const },
-  { key: 'claims', labelKey: 'checkClaims' as const },
-  { key: 'source', labelKey: 'checkSource' as const },
-  { key: 'link', labelKey: 'checkLink' as const },
-];
-
-const PULSE_DURATION = 1600;
-const ROTATION_DURATION = 3000;
-const STEP_DURATION = 800;
+type Params = {
+  url?: string;
+  mediaUri?: string;
+};
 
 export default function ScanningScreen() {
   const router = useRouter();
-  const { url, mediaUri } = useLocalSearchParams<{ url?: string; mediaUri?: string }>();
-  const { t, setCurrentScan, addScan, recordScan } = useApp();
-  const reduceMotion = useReduceMotion();
-  const { isConnected } = useNetwork();
-  const [aiStatus, setAiStatus] = useState<'ready' | 'fallback' | 'offline'>('ready');
-  const [completedSteps, setCompletedSteps] = useState<number>(0);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [, setIsScanning] = useState(true);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0.35)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const { url, mediaUri } = useLocalSearchParams<Params>();
 
-  useEffect(() => {
-    if (reduceMotion) {
-      pulseAnim.setValue(1);
-      glowAnim.setValue(0.5);
-      return;
-    }
+  const { isConnected: isOnline } = useNetwork();
+  const [statusText, setStatusText] = useState<string>("Scanning…");
+  const [step, setStep] = useState<number>(0);
+  const [error, setError] = useState<string | null>(null);
 
-    const pulseAnimation = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.12,
-            duration: PULSE_DURATION / 2,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: PULSE_DURATION / 2,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(glowAnim, {
-            toValue: 0.6,
-            duration: PULSE_DURATION / 2,
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowAnim, {
-            toValue: 0.35,
-            duration: PULSE_DURATION / 2,
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    );
-    pulseAnimation.start();
+  const didRunRef = useRef(false);
 
-    const rotateAnimation = Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: ROTATION_DURATION,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    );
-    rotateAnimation.start();
+  const steps = useMemo(
+    () => [
+      "Checking media integrity…",
+      "Checking claims…",
+      "Checking source signals…",
+      "Checking link safety…",
+      "Generating explainable reasons (A–F)…",
+    ],
+    []
+  );
 
-    return () => {
-      pulseAnimation.stop();
-      rotateAnimation.stop();
+  // Determine scan input
+  const scanInput = useMemo(() => {
+    const cleanUrl = typeof url === "string" ? url.trim() : "";
+    const cleanMedia = typeof mediaUri === "string" ? mediaUri.trim() : "";
+    return {
+      url: cleanUrl.length ? cleanUrl : undefined,
+      mediaUri: cleanMedia.length ? cleanMedia : undefined,
     };
-  }, [pulseAnim, glowAnim, rotateAnim, reduceMotion]);
+  }, [url, mediaUri]);
 
   useEffect(() => {
-    const performScan = async () => {
-      const timeouts: ReturnType<typeof setTimeout>[] = [];
-      
-      SCAN_STEPS.forEach((_, index) => {
-        const timeout = setTimeout(() => {
-          setCompletedSteps(index + 1);
-          if (!reduceMotion) {
-            Animated.timing(progressAnim, {
-              toValue: (index + 1) / SCAN_STEPS.length,
-              duration: 300,
-              useNativeDriver: false,
-            }).start();
-          } else {
-            progressAnim.setValue((index + 1) / SCAN_STEPS.length);
-          }
-          if (Platform.OS !== 'web') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        }, (index + 1) * STEP_DURATION);
-        timeouts.push(timeout);
-      });
+    if (didRunRef.current) return;
+    didRunRef.current = true;
 
+    const run = async () => {
       try {
-        console.log('[ScanningScreen] Starting AI-powered scan...');
-        setAiStatus(isConnected ? 'ready' : 'offline');
-        
-        let scanResult;
-        if (mediaUri) {
-          console.log('[ScanningScreen] Scanning media:', mediaUri);
-          scanResult = await scanService.scanMedia({ mediaUri });
-        } else if (url) {
-          console.log('[ScanningScreen] Scanning URL:', url);
-          scanResult = await scanService.scanUrl({ url });
+        setError(null);
+
+        // show online/offline as UI only (not "AI connected")
+        if (!isOnline) {
+          setStatusText("Offline mode (fallback)");
+        }
+
+        // Basic progress loop
+        let i = 0;
+        const interval = setInterval(() => {
+          i = (i + 1) % steps.length;
+          setStep(i);
+        }, 800);
+
+        let result: any;
+
+        if (scanInput.url) {
+          result = await scanService.scanUrl({ url: scanInput.url });
+        } else if (scanInput.mediaUri) {
+          result = await scanService.scanMedia({ mediaUri: scanInput.mediaUri });
         } else {
-          throw new Error('No URL or media provided');
+          clearInterval(interval);
+          setError("No URL or screenshot provided.");
+          return;
         }
-        
-        const minWaitTime = SCAN_STEPS.length * STEP_DURATION + 500;
-        await new Promise(resolve => setTimeout(resolve, minWaitTime));
-        
-        recordScan();
-        setCurrentScan(scanResult);
-        addScan(scanResult);
-        
-        if (Platform.OS !== 'web') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        clearInterval(interval);
+
+        // Must contain scanId or minimum payload to render result
+        // Route to result with serialized payload if scanId missing
+        if (result?.scanId) {
+          router.replace(`/result?scanId=${encodeURIComponent(result.scanId)}`);
+        } else {
+          // fallback: pass payload directly (encoded JSON)
+          const encoded = encodeURIComponent(JSON.stringify(result ?? {}));
+          router.replace(`/result?payload=${encoded}`);
         }
-        
-        console.log('[ScanningScreen] Scan complete:', scanResult.badge, scanResult.score);
-        setAiStatus('ready');
-        router.replace('/result');
-      } catch (error) {
-        console.error('[ScanningScreen] Scan error:', error);
-        setAiStatus('fallback');
-        setScanError('Scan failed. Please try again.');
-        setIsScanning(false);
-        if (Platform.OS !== 'web') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        }
+      } catch (e: any) {
+        setError(e?.message || "Scan failed. Please try again.");
       }
-      
-      return () => {
-        timeouts.forEach(clearTimeout);
-      };
     };
-    
-    performScan();
-  }, [url, mediaUri, setCurrentScan, addScan, router, progressAnim, reduceMotion, recordScan, isConnected]);
 
-  const rotate = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
-
-  if (scanError) {
-    return (
-      <View style={styles.container}>
-        <LinearGradient
-          colors={[Colors.background, Colors.backgroundSecondary, Colors.background]}
-          style={StyleSheet.absoluteFill}
-        />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.errorContent}>
-            <WifiOff size={48} color={Colors.highRisk} />
-            <Text style={styles.errorTitle}>{scanError}</Text>
-            <Text style={styles.errorSubtext}>
-              {!isConnected ? 'Check your internet connection' : 'Please try again'}
-            </Text>
-          </View>
-        </SafeAreaView>
-      </View>
-    );
-  }
+    run();
+  }, [isOnline, router, scanInput, steps]);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={[Colors.background, Colors.backgroundSecondary, Colors.background]}
-        style={StyleSheet.absoluteFill}
-      />
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.content}>
-          <View style={styles.networkStatus}>
-            {aiStatus === 'ready' && isConnected ? (
-              <>
-                <Sparkles size={14} color={Colors.accent} />
-                <Text style={styles.networkTextAi}>AI Ready</Text>
-              </>
-            ) : aiStatus === 'fallback' ? (
-              <>
-                <AlertCircle size={14} color={Colors.unverified} />
-                <Text style={styles.networkTextFallback}>AI Fallback</Text>
-              </>
-            ) : isConnected ? (
-              <>
-                <Wifi size={14} color={Colors.verified} />
-                <Text style={styles.networkText}>Online</Text>
-              </>
-            ) : (
-              <>
-                <WifiOff size={14} color={Colors.highRisk} />
-                <Text style={styles.networkTextOffline}>Offline</Text>
-              </>
-            )}
-          </View>
-          
-          <Logo size="medium" showSubtext />
+    <View style={{ flex: 1, justifyContent: "center", padding: 20 }}>
+      <Text style={{ fontSize: 18, fontWeight: "600", textAlign: "center" }}>
+        {statusText}
+      </Text>
 
-          <View style={styles.loaderContainer}>
-            <View style={styles.scannerOuter}>
-              <Animated.View 
-                style={[
-                  styles.scannerRing,
-                  { 
-                    transform: [{ rotate }, { scale: pulseAnim }],
-                    opacity: glowAnim,
-                  }
-                ]}
-              />
-              <Animated.View 
-                style={[
-                  styles.scannerRingInner,
-                  { 
-                    transform: [{ rotate: rotate }, { scale: Animated.add(pulseAnim, -0.1) }],
-                  }
-                ]}
-              />
-              <View style={styles.scannerCenter}>
-                <Shield size={32} color={Colors.primary} />
-              </View>
-            </View>
-          </View>
+      <View style={{ height: 18 }} />
 
-          <Text style={styles.title}>{t.scanning}</Text>
+      <ActivityIndicator size="large" />
 
-          <View style={styles.progressBar}>
-            <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
-          </View>
+      <View style={{ height: 18 }} />
 
-          <View style={styles.stepsContainer}>
-            {SCAN_STEPS.map((step, index) => {
-              const isCompleted = index < completedSteps;
-              const isActive = index === completedSteps;
-              
-              return (
-                <View key={step.key} style={styles.stepRow}>
-                  <View style={[
-                    styles.stepIndicator,
-                    isCompleted && styles.stepIndicatorComplete,
-                    isActive && styles.stepIndicatorActive,
-                  ]}>
-                    {isCompleted ? (
-                      <Check size={14} color={Colors.text} />
-                    ) : (
-                      <View style={[
-                        styles.stepDot,
-                        isActive && styles.stepDotActive,
-                      ]} />
-                    )}
-                  </View>
-                  <Text style={[
-                    styles.stepText,
-                    isCompleted && styles.stepTextComplete,
-                    isActive && styles.stepTextActive,
-                  ]}>
-                    {t[step.labelKey]}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
+      <Text style={{ textAlign: "center", opacity: 0.85 }}>
+        {steps[step]}
+      </Text>
 
-          <Text style={styles.microcopy}>{t.scanMicro}</Text>
+      <View style={{ height: 18 }} />
+
+      <Text style={{ textAlign: "center", opacity: 0.6, fontSize: 12 }}>
+        {isOnline ? "Online" : "Offline"} • Risk-based verification
+      </Text>
+
+      {!!error && (
+        <View style={{ marginTop: 18 }}>
+          <Text style={{ textAlign: "center", color: "tomato" }}>{error}</Text>
+
+          <View style={{ height: 12 }} />
+
+          <Pressable
+            onPress={() => router.replace("/")}
+            style={{
+              alignSelf: "center",
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 14,
+              backgroundColor: "rgba(255,255,255,0.08)",
+            }}
+          >
+            <Text style={{ fontWeight: "600" }}>Back to Scan</Text>
+          </Pressable>
         </View>
-      </SafeAreaView>
+      )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  errorContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    gap: 16,
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: Colors.highRisk,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  networkStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  networkText: {
-    fontSize: 12,
-    fontWeight: '500' as const,
-    color: Colors.verified,
-  },
-  networkTextAi: {
-    fontSize: 12,
-    fontWeight: '600' as const,
-    color: Colors.accent,
-  },
-  networkTextFallback: {
-    fontSize: 12,
-    fontWeight: '500' as const,
-    color: Colors.unverified,
-  },
-  networkTextOffline: {
-    color: Colors.highRisk,
-  },
-  loaderContainer: {
-    marginTop: 48,
-    marginBottom: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scannerOuter: {
-    width: 120,
-    height: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scannerRing: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: Colors.primary,
-    borderTopColor: 'transparent',
-    borderRightColor: Colors.primary + '60',
-  },
-  scannerRingInner: {
-    position: 'absolute',
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 2,
-    borderColor: Colors.accent + '40',
-    borderBottomColor: 'transparent',
-  },
-  scannerCenter: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Colors.primary + '20',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.primary + '40',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 24,
-  },
-  progressBar: {
-    width: '80%',
-    height: 6,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 3,
-    marginBottom: 40,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 3,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-  },
-  stepsContainer: {
-    width: '100%',
-    maxWidth: 300,
-    gap: 16,
-    marginBottom: 40,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepIndicatorComplete: {
-    backgroundColor: Colors.verified,
-    shadowColor: Colors.verified,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-  },
-  stepIndicatorActive: {
-    backgroundColor: Colors.primary,
-  },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.textTertiary,
-  },
-  stepDotActive: {
-    backgroundColor: Colors.text,
-  },
-  stepText: {
-    fontSize: 14,
-    color: Colors.textTertiary,
-  },
-  stepTextComplete: {
-    color: Colors.verified,
-  },
-  stepTextActive: {
-    color: Colors.text,
-    fontWeight: '500' as const,
-  },
-  microcopy: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontStyle: 'italic',
-  },
-});
