@@ -1,5 +1,5 @@
 // app/(tabs)/history.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,29 +9,13 @@ import {
   Share,
   Alert,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-
-type Badge = "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
-
-type ScanItem = {
-  scanId?: string;
-  badge: Badge;
-  score: number;
-  domain: string;
-  title?: string;
-  createdAt: string; // ISO
-  reasons?: any;
-  url?: string;
-};
-
-const STORAGE_KEY = "reail_scan_history_v1";
-
-function clampScore(n: any) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  return Math.max(0, Math.min(100, Math.round(x)));
-}
+import { useRouter, useFocusEffect } from "expo-router";
+import {
+  loadHistory,
+  clearHistory,
+  type Badge,
+  type ScanHistoryItem,
+} from "../../utils/historyStore";
 
 function badgeLabel(b: Badge) {
   if (b === "VERIFIED") return "✅";
@@ -39,24 +23,32 @@ function badgeLabel(b: Badge) {
   return "❌";
 }
 
+function clampScore(n: any) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(100, Math.round(x)));
+}
+
 export default function HistoryScreen() {
   const router = useRouter();
 
-  const [items, setItems] = useState<ScanItem[]>([]);
+  const [items, setItems] = useState<ScanHistoryItem[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"ALL" | Badge>("ALL");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        const parsed = raw ? (JSON.parse(raw) as ScanItem[]) : [];
-        setItems(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        setItems([]);
-      }
-    })();
-  }, []);
+  // Reload history every time user opens this tab (so it always shows latest scans)
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        const history = await loadHistory();
+        if (active) setItems(history);
+      })();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -70,12 +62,13 @@ export default function HistoryScreen() {
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }, [items, q, filter]);
 
-  const onOpen = (it: ScanItem) => {
+  const onOpen = (it: ScanHistoryItem) => {
+    // Pass full payload to Result screen
     const payload = encodeURIComponent(JSON.stringify(it));
     router.push(`/result?payload=${payload}`);
   };
 
-  const onShare = async (it: ScanItem) => {
+  const onShare = async (it: ScanHistoryItem) => {
     const msg = [
       "REAiL Scan Result",
       `${badgeLabel(it.badge)} ${it.badge} • Score: ${clampScore(it.score)}/100`,
@@ -98,7 +91,7 @@ export default function HistoryScreen() {
         text: "Clear",
         style: "destructive",
         onPress: async () => {
-          await AsyncStorage.removeItem(STORAGE_KEY);
+          await clearHistory();
           setItems([]);
         },
       },
