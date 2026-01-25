@@ -84,3 +84,28 @@ export async function getInitialURL(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Share a scan result via native share sheet.
+ */
+export async function shareResult(
+  scan: { id: string; domain: string; score: number; badge: string },
+  locale: "en" | "es" = "en"
+): Promise<void> {
+  const { Share } = await import('react-native');
+  
+  const link = buildResultLink(scan.id, locale);
+  const badgeText = scan.badge === 'VERIFIED' ? '✅ Verified' 
+    : scan.badge === 'HIGH_RISK' ? '⚠️ High Risk' 
+    : '❓ Unverified';
+  
+  const message = locale === 'es'
+    ? `REAiL Scan: ${scan.domain}\n${badgeText} • Score: ${scan.score}/100\n\n${link}`
+    : `REAiL Scan: ${scan.domain}\n${badgeText} • Score: ${scan.score}/100\n\n${link}`;
+
+  try {
+    await Share.share({ message });
+  } catch (error) {
+    console.log('[shareResult] Error:', error);
+  }
+}

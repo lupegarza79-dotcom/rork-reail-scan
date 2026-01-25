@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import Colors from '@/constants/colors';
 import { AppProvider } from '@/contexts/AppContext';
-import { getInitialUrl, addUrlListener, parseScanIdFromUrl } from '@/utils/deepLinking';
+import { getInitialURL, addUrlListener, parseIncomingUrl } from '@/utils/deepLinking';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -61,23 +61,22 @@ function DeepLinkHandler() {
     
     console.log('[DeepLink] Received URL:', url);
     
-    const scanId = parseScanIdFromUrl(url);
-    if (scanId) {
-      console.log('[DeepLink] Navigating to result with scanId:', scanId);
-      router.push({ pathname: '/result', params: { scanId } });
+    const route = parseIncomingUrl(url);
+    
+    if (route.type === 'result') {
+      console.log('[DeepLink] Navigating to result with scanId:', route.scanId);
+      router.push({ pathname: '/result', params: { scanId: route.scanId } });
       return;
     }
 
-    const urlMatch = url.match(/https?:\/\/[^\s]+/);
-    if (urlMatch) {
-      const sharedUrl = urlMatch[0];
-      console.log('[DeepLink] Share-to-Scan detected, URL:', sharedUrl);
-      router.push({ pathname: '/scanning', params: { url: sharedUrl } });
+    if (route.type === 'scan') {
+      console.log('[DeepLink] Share-to-Scan detected, URL:', route.url);
+      router.push({ pathname: '/scanning', params: { url: route.url } });
     }
   }, [router]);
 
   useEffect(() => {
-    getInitialUrl().then(handleDeepLink);
+    getInitialURL().then(handleDeepLink);
     const unsubscribe = addUrlListener(handleDeepLink);
     return unsubscribe;
   }, [handleDeepLink]);
