@@ -1,5 +1,5 @@
 // app/result.tsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
+import { getCachedScanResult } from "../utils/scanCache";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -99,23 +100,41 @@ export default function ResultScreen() {
   });
 
   const shareCardRef = useRef<View>(null);
+  const [cached, setCached] = useState<ScanResult | null>(null);
+  const scanIdStr = scanId ? String(scanId) : "";
 
   const parsedPayload = useMemo(() => {
     const decoded = payload ? decodeURIComponent(String(payload)) : "";
     return safeJsonParse<ScanResult>(decoded);
   }, [payload]);
 
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      if (scanIdStr && !parsedPayload) {
+        const found = await getCachedScanResult(scanIdStr);
+        if (active && found) setCached(found);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [scanIdStr, parsedPayload]);
+
   const result: ScanResult = useMemo(() => {
     if (parsedPayload) return parsedPayload;
+    if (cached) return cached;
     return {
-      scanId: scanId ? String(scanId) : undefined,
+      scanId: scanIdStr || undefined,
       badge: "UNVERIFIED",
       score: 60,
       domain: "reail.app",
-      title: "Shared report",
+      title: "Loading shared report...",
       reasons: defaultReasons(),
     };
-  }, [parsedPayload, scanId]);
+  }, [parsedPayload, cached, scanIdStr]);
 
   const badge = result.badge ?? "UNVERIFIED";
   const score = clampScore(result.score ?? 0);

@@ -2,6 +2,7 @@
 import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
+import { cacheScanResult } from "./scanCache";
 
 // If your project has path aliases (@/types/scan), keep them.
 // If not, change to relative: ../types/scan
@@ -75,6 +76,10 @@ class ScanService {
         createdAt: new Date(result.timestamp || Date.now()).toISOString(),
         reasons: result.reasons,
       });
+
+      if (result.id) {
+        await cacheScanResult(result.id, result);
+      }
     } catch {
       // never crash scanning because of history
     }
