@@ -9,13 +9,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Animated,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
+import { Settings, Shield, Clipboard as ClipboardIcon } from "lucide-react-native";
+import Colors from "@/constants/colors";
 
 export default function ScanHomeScreen() {
   const router = useRouter();
   const [input, setInput] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
 
   const cleanUrl = useMemo(() => input.trim(), [input]);
 
@@ -34,7 +38,14 @@ export default function ScanHomeScreen() {
     router.push(`/scanning?url=${encodeURIComponent(cleanUrl)}`);
   };
 
-  const chips = ["TikTok", "Instagram", "Facebook", "YouTube", "News", "Shop"];
+  const platforms = [
+    { name: "TikTok", color: "#ff0050" },
+    { name: "Instagram", color: "#E1306C" },
+    { name: "Facebook", color: "#1877F2" },
+    { name: "YouTube", color: "#FF0000" },
+    { name: "News", color: "#6366F1" },
+    { name: "Shop", color: "#10B981" },
+  ];
 
   return (
     <KeyboardAvoidingView
@@ -42,60 +53,90 @@ export default function ScanHomeScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.topBar}>
-        <Text style={styles.logo}>REAiL</Text>
-        <Text style={styles.title}>Scan</Text>
-        <Pressable onPress={() => router.push("/settings")} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>⚙️</Text>
+        <View style={styles.logoContainer}>
+          <Shield size={20} color={Colors.primary} strokeWidth={2.5} />
+          <Text style={styles.logo}>REAiL</Text>
+        </View>
+        <Pressable 
+          onPress={() => router.push("/settings")} 
+          style={styles.settingsBtn}
+        >
+          <Settings size={22} color={Colors.textSecondary} strokeWidth={2} />
         </Pressable>
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.headline}>Paste a link. Know if it's real.</Text>
-        <Text style={styles.subhead}>
-          TikTok • Instagram • Facebook • YouTube • News • Shops
-        </Text>
+        <View style={styles.heroSection}>
+          <Text style={styles.headline}>Verify any link</Text>
+          <Text style={styles.subheadline}>in seconds</Text>
+          <Text style={styles.tagline}>
+            AI-powered detection for fake news, scams & misinformation
+          </Text>
+        </View>
 
-        <View style={styles.spacer14} />
+        <View style={styles.inputSection}>
+          <View style={[
+            styles.inputContainer,
+            isFocused && styles.inputContainerFocused
+          ]}>
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              placeholder="Paste any link here…"
+              placeholderTextColor={Colors.textTertiary}
+              style={styles.input}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable 
+              onPress={onPaste} 
+              style={({ pressed }) => [
+                styles.pasteBtn,
+                pressed && styles.pasteBtnPressed
+              ]}
+            >
+              <ClipboardIcon size={16} color="white" strokeWidth={2.5} />
+              <Text style={styles.pasteText}>PASTE</Text>
+            </Pressable>
+          </View>
 
-        <View style={styles.inputRow}>
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            placeholder="Paste any link here…"
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            style={styles.input}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Pressable onPress={onPaste} style={styles.pasteBtn}>
-            <Text style={styles.pasteText}>PASTE</Text>
+          <Pressable
+            onPress={onScanNow}
+            style={({ pressed }) => [
+              styles.scanBtn,
+              !cleanUrl && styles.scanBtnDisabled,
+              pressed && cleanUrl && styles.scanBtnPressed
+            ]}
+            disabled={!cleanUrl}
+          >
+            <Shield size={18} color="white" strokeWidth={2.5} />
+            <Text style={styles.scanText}>SCAN NOW</Text>
           </Pressable>
         </View>
 
-        <View style={styles.spacer12} />
-
-        <Pressable
-          onPress={onScanNow}
-          style={[styles.scanBtn, !cleanUrl && styles.scanBtnDisabled]}
-          disabled={!cleanUrl}
-        >
-          <Text style={styles.scanText}>SCAN NOW</Text>
-        </Pressable>
-
-        <View style={styles.spacer14} />
-
-        <View style={styles.chipsRow}>
-          {chips.map((c) => (
-            <View key={c} style={styles.chip}>
-              <Text style={styles.chipText}>{c}</Text>
-            </View>
-          ))}
+        <View style={styles.platformsSection}>
+          <Text style={styles.platformsLabel}>Works with</Text>
+          <View style={styles.platformsRow}>
+            {platforms.map((p) => (
+              <View key={p.name} style={styles.platformChip}>
+                <View style={[styles.platformDot, { backgroundColor: p.color }]} />
+                <Text style={styles.platformText}>{p.name}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        <View style={styles.spacer14} />
-
-        <Pressable onPress={() => router.push("/tools")} style={styles.moreLink}>
-          <Text style={styles.moreLinkText}>More options →</Text>
+        <Pressable 
+          onPress={() => router.push("/tools")} 
+          style={({ pressed }) => [
+            styles.moreLink,
+            pressed && styles.moreLinkPressed
+          ]}
+        >
+          <Text style={styles.moreLinkText}>More options</Text>
+          <Text style={styles.moreLinkArrow}>→</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -105,134 +146,180 @@ export default function ScanHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0b0c10",
+    backgroundColor: Colors.background,
   },
   topBar: {
-    height: 56,
-    paddingHorizontal: 16,
+    height: 60,
+    paddingHorizontal: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  logoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   logo: {
     color: "white",
-    fontWeight: "900",
-    fontSize: 16,
+    fontWeight: "800" as const,
+    fontSize: 20,
+    letterSpacing: 0.5,
   },
-  title: {
-    color: "white",
-    fontWeight: "800",
-    fontSize: 16,
-    opacity: 0.9,
-  },
-  topBtn: {
-    minWidth: 44,
-    minHeight: 44,
+  settingsBtn: {
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-  topBtnText: {
-    color: "white",
-    fontSize: 16,
-    opacity: 0.9,
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundSecondary,
   },
   content: {
-    padding: 16,
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  heroSection: {
+    marginBottom: 32,
   },
   headline: {
     color: "white",
-    fontSize: 22,
-    fontWeight: "900",
-    lineHeight: 28,
+    fontSize: 36,
+    fontWeight: "800" as const,
+    letterSpacing: -0.5,
   },
-  subhead: {
-    color: "white",
-    opacity: 0.7,
-    marginTop: 6,
+  subheadline: {
+    color: Colors.primary,
+    fontSize: 36,
+    fontWeight: "800" as const,
+    letterSpacing: -0.5,
+    marginTop: -4,
   },
-  spacer14: {
-    height: 14,
+  tagline: {
+    color: Colors.textSecondary,
+    fontSize: 15,
+    marginTop: 12,
+    lineHeight: 22,
   },
-  spacer12: {
-    height: 12,
+  inputSection: {
+    gap: 14,
   },
-  inputRow: {
+  inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    paddingLeft: 16,
+    paddingRight: 6,
+    height: 58,
+  },
+  inputContainerFocused: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.backgroundTertiary,
   },
   input: {
     flex: 1,
-    height: 54,
-    borderRadius: 16,
-    paddingHorizontal: 14,
     color: "white",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    fontSize: 15,
+    paddingVertical: 0,
   },
   pasteBtn: {
-    height: 54,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  pasteBtnPressed: {
+    backgroundColor: Colors.cardHighlight,
   },
   pasteText: {
     color: "white",
-    fontWeight: "900",
-    opacity: 0.9,
+    fontWeight: "700" as const,
+    fontSize: 13,
   },
   scanBtn: {
-    height: 56,
-    borderRadius: 18,
+    height: 58,
+    borderRadius: 16,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(120,180,255,0.28)",
-    borderWidth: 1,
-    borderColor: "rgba(120,180,255,0.35)",
+    gap: 10,
+    backgroundColor: Colors.primary,
+  },
+  scanBtnPressed: {
+    backgroundColor: Colors.primaryDark,
   },
   scanBtnDisabled: {
-    opacity: 0.5,
+    backgroundColor: Colors.backgroundTertiary,
+    opacity: 0.6,
   },
   scanText: {
     color: "white",
-    fontWeight: "900",
-    fontSize: 15,
+    fontWeight: "800" as const,
+    fontSize: 16,
+    letterSpacing: 0.5,
   },
-  chipsRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "nowrap",
+  platformsSection: {
+    marginTop: 32,
   },
-  chip: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    justifyContent: "center",
-  },
-  chipText: {
-    color: "white",
-    opacity: 0.8,
-    fontWeight: "700",
+  platformsLabel: {
+    color: Colors.textTertiary,
     fontSize: 12,
+    fontWeight: "600" as const,
+    textTransform: "uppercase" as const,
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  platformsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  platformChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  platformDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  platformText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600" as const,
   },
   moreLink: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    gap: 6,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginTop: 24,
+  },
+  moreLinkPressed: {
+    opacity: 0.7,
   },
   moreLinkText: {
-    color: "rgba(120,180,255,0.9)",
-    fontWeight: "700",
+    color: Colors.primary,
+    fontWeight: "600" as const,
     fontSize: 14,
+  },
+  moreLinkArrow: {
+    color: Colors.primary,
+    fontSize: 16,
   },
 });

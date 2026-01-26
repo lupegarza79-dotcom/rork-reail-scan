@@ -1,8 +1,9 @@
 // app/scanning.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, ActivityIndicator, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, Animated, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Shield, Wifi, WifiOff, CheckCircle } from "lucide-react-native";
 import { scanService } from "../utils/scanService";
 import { useNetwork } from "../hooks/useNetwork";
 import Colors from "@/constants/colors";
@@ -17,11 +18,52 @@ export default function ScanningScreen() {
   const { url, mediaUri } = useLocalSearchParams<Params>();
 
   const { isConnected: isOnline } = useNetwork();
-  const [statusText, setStatusText] = useState<string>("Scanning…");
+  const [statusText, setStatusText] = useState<string>("Analyzing");
   const [step, setStep] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   const didRunRef = useRef(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Rotate animation
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 3000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+
+    // Progress animation
+    Animated.timing(progressAnim, {
+      toValue: 1,
+      duration: 8000,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  }, []);
 
   const steps = useMemo(
     () => [
@@ -95,40 +137,81 @@ export default function ScanningScreen() {
     run();
   }, [isOnline, router, scanInput, steps]);
 
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '95%'],
+  });
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>REAiL</Text>
+          <View style={styles.animationContainer}>
+            <Animated.View 
+              style={[
+                styles.pulseRing,
+                { transform: [{ scale: pulseAnim }] }
+              ]}
+            />
+            <Animated.View 
+              style={[
+                styles.rotatingRing,
+                { transform: [{ rotate: spin }] }
+              ]}
+            />
+            <View style={styles.iconCircle}>
+              <Shield size={40} color={Colors.primary} strokeWidth={2} />
+            </View>
           </View>
 
-          <Text style={styles.statusText}>{statusText}</Text>
+          <View style={styles.textContainer}>
+            <Text style={styles.statusText}>{statusText}</Text>
+            <Text style={styles.stepText}>{steps[step]}</Text>
+          </View>
 
-          <View style={styles.spacer} />
-
-          <ActivityIndicator size="large" color={Colors.primary} />
-
-          <View style={styles.spacer} />
-
-          <Text style={styles.stepText}>{steps[step]}</Text>
-
-          <View style={styles.spacer} />
+          <View style={styles.progressContainer}>
+            <View style={styles.progressTrack}>
+              <Animated.View style={[styles.progressBar, { width: progressWidth }]} />
+            </View>
+            <View style={styles.stepsIndicator}>
+              {steps.map((_, i) => (
+                <View 
+                  key={i} 
+                  style={[
+                    styles.stepDot,
+                    i <= step && styles.stepDotActive
+                  ]} 
+                />
+              ))}
+            </View>
+          </View>
 
           <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: isOnline ? Colors.verified : Colors.highRisk }]} />
+            {isOnline ? (
+              <Wifi size={14} color={Colors.verified} strokeWidth={2.5} />
+            ) : (
+              <WifiOff size={14} color={Colors.highRisk} strokeWidth={2.5} />
+            )}
             <Text style={styles.statusLabel}>
-              {isOnline ? "Online" : "Offline"} • Risk-based verification
+              {isOnline ? "Connected" : "Offline mode"}
             </Text>
           </View>
 
           {!!error && (
             <View style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
-
-              <View style={styles.spacerSmall} />
-
-              <Pressable onPress={() => router.replace("/")} style={styles.backBtn}>
+              <Pressable 
+                onPress={() => router.replace("/")} 
+                style={({ pressed }) => [
+                  styles.backBtn,
+                  pressed && styles.backBtnPressed
+                ]}
+              >
                 <Text style={styles.backBtnText}>Back to Scan</Text>
               </Pressable>
             </View>
@@ -151,73 +234,131 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: 24,
   },
-  logoContainer: {
+  animationContainer: {
+    width: 160,
+    height: 160,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 40,
+  },
+  pulseRing: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: Colors.primaryGlow,
+    opacity: 0.3,
+  },
+  rotatingRing: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    borderWidth: 3,
+    borderColor: "transparent",
+    borderTopColor: Colors.primary,
+    borderRightColor: Colors.primaryLight,
+  },
+  iconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: Colors.backgroundSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  textContainer: {
+    alignItems: "center",
     marginBottom: 32,
   },
-  logo: {
-    color: "white",
-    fontWeight: "900" as const,
-    fontSize: 28,
-    letterSpacing: 1,
-  },
   statusText: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: "700" as const,
-    textAlign: "center",
+    textAlign: "center" as const,
     color: "white",
-  },
-  spacer: {
-    height: 24,
-  },
-  spacerSmall: {
-    height: 12,
+    marginBottom: 8,
   },
   stepText: {
-    textAlign: "center",
-    color: "white",
-    opacity: 0.85,
+    textAlign: "center" as const,
+    color: Colors.textSecondary,
     fontSize: 14,
+    lineHeight: 20,
+  },
+  progressContainer: {
+    width: "100%",
+    maxWidth: 280,
+    marginBottom: 32,
+  },
+  progressTrack: {
+    height: 6,
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 3,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  progressBar: {
+    height: "100%",
+    backgroundColor: Colors.primary,
+    borderRadius: 3,
+  },
+  stepsIndicator: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  stepDotActive: {
+    backgroundColor: Colors.primary,
   },
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: Colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   statusLabel: {
-    color: "white",
-    opacity: 0.7,
-    fontSize: 12,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "500" as const,
   },
   errorContainer: {
-    marginTop: 24,
+    marginTop: 32,
     alignItems: "center",
+    gap: 16,
   },
   errorText: {
-    textAlign: "center",
+    textAlign: "center" as const,
     color: Colors.highRisk,
     fontSize: 14,
   },
   backBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
     borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: Colors.border,
+  },
+  backBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
   },
   backBtnText: {
-    fontWeight: "700" as const,
+    fontWeight: "600" as const,
     color: "white",
+    fontSize: 15,
   },
 });

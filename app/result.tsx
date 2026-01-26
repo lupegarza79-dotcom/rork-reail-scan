@@ -11,13 +11,29 @@ import {
   StyleSheet,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
+import { 
+  ArrowLeft, 
+  Share2, 
+  ExternalLink, 
+  ChevronDown, 
+  ChevronRight,
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  Info,
+  Image as ImageIcon,
+  X
+} from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanResultById } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
+import Colors from "@/constants/colors";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -61,9 +77,28 @@ function safeJsonParse<T>(value: string | undefined): T | null {
 }
 
 function badgeLabel(badge?: ScanResult["badge"]) {
-  if (badge === "VERIFIED") return "✅ VERIFIED";
-  if (badge === "UNVERIFIED") return "⚠️ UNVERIFIED";
-  return "❌ HIGH RISK";
+  if (badge === "VERIFIED") return "VERIFIED";
+  if (badge === "UNVERIFIED") return "UNVERIFIED";
+  return "HIGH RISK";
+}
+
+function getBadgeColor(badge?: ScanResult["badge"]) {
+  if (badge === "VERIFIED") return Colors.verified;
+  if (badge === "UNVERIFIED") return Colors.unverified;
+  return Colors.highRisk;
+}
+
+function getBadgeBg(badge?: ScanResult["badge"]) {
+  if (badge === "VERIFIED") return Colors.verifiedBg;
+  if (badge === "UNVERIFIED") return Colors.unverifiedBg;
+  return Colors.highRiskBg;
+}
+
+function BadgeIcon({ badge, size = 24 }: { badge?: ScanResult["badge"]; size?: number }) {
+  const color = getBadgeColor(badge);
+  if (badge === "VERIFIED") return <ShieldCheck size={size} color={color} strokeWidth={2} />;
+  if (badge === "UNVERIFIED") return <ShieldAlert size={size} color={color} strokeWidth={2} />;
+  return <ShieldX size={size} color={color} strokeWidth={2} />;
 }
 
 function badgeHint(badge?: ScanResult["badge"]) {
@@ -273,26 +308,59 @@ export default function ResultScreen() {
     setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   };
 
+  const badgeColor = getBadgeColor(badge);
+  const badgeBg = getBadgeBg(badge);
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={styles.headerBtnText}>←</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Result</Text>
-        <Pressable onPress={onShareText} style={styles.headerBtn}>
-          <Text style={styles.headerBtnText}>Share</Text>
-        </Pressable>
-      </View>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <View style={styles.header}>
+          <Pressable 
+            onPress={() => router.replace("/")} 
+            style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
+          >
+            <ArrowLeft size={22} color="white" strokeWidth={2} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Scan Result</Text>
+          <Pressable 
+            onPress={onShareText} 
+            style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
+          >
+            <Share2 size={20} color="white" strokeWidth={2} />
+          </Pressable>
+        </View>
+      </SafeAreaView>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.domainText}>{domain}</Text>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.mainCard}>
+          <View style={styles.badgeSection}>
+            <View style={[styles.badgeIconContainer, { backgroundColor: badgeBg }]}>
+              <BadgeIcon badge={badge} size={32} />
+            </View>
+            <Text style={[styles.badgeText, { color: badgeColor }]}>
+              {badgeLabel(badge)}
+            </Text>
+            <Text style={styles.domainText}>{domain}</Text>
+          </View>
 
-          <View style={styles.spacer10} />
-
-          <Text style={styles.badgeText}>{badgeLabel(badge)}</Text>
-          <Text style={styles.scoreText}>Trust Score: {score}</Text>
+          <View style={styles.scoreSection}>
+            <View style={styles.scoreCircle}>
+              <Text style={[styles.scoreValue, { color: badgeColor }]}>{score}</Text>
+              <Text style={styles.scoreLabel}>Trust Score</Text>
+            </View>
+            <View style={styles.scoreBarContainer}>
+              <View style={styles.scoreBarTrack}>
+                <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: badgeColor }]} />
+              </View>
+              <View style={styles.scoreLabels}>
+                <Text style={styles.scoreLabelText}>0</Text>
+                <Text style={styles.scoreLabelText}>100</Text>
+              </View>
+            </View>
+          </View>
 
           {loadingRemote && (
             <Text style={styles.loadingText}>Loading shared result…</Text>
@@ -301,97 +369,130 @@ export default function ResultScreen() {
             <Text style={styles.errorText}>{remoteError}</Text>
           )}
 
-          <Pressable onPress={() => setDisclaimerOpen(true)} style={styles.disclaimerPill}>
-            <Text style={styles.disclaimerPillText}>
-              {disclaimerShort} <Text style={styles.disclaimerInfoIcon}>ⓘ</Text>
-            </Text>
+          <View style={styles.verdictContainer}>
+            <Text style={styles.verdictText}>{badgeHint(badge)}</Text>
+          </View>
+
+          <Pressable 
+            onPress={() => setDisclaimerOpen(true)} 
+            style={({ pressed }) => [styles.disclaimerPill, pressed && styles.disclaimerPillPressed]}
+          >
+            <Info size={14} color={Colors.textTertiary} strokeWidth={2} />
+            <Text style={styles.disclaimerPillText}>{disclaimerShort}</Text>
           </Pressable>
 
-          <View style={styles.spacer10} />
-          <Text style={styles.verdictText}>{badgeHint(badge)}</Text>
-
           {!!result.url && (
-            <Pressable onPress={onOpenLink} style={styles.openLinkBtn}>
+            <Pressable 
+              onPress={onOpenLink} 
+              style={({ pressed }) => [styles.openLinkBtn, pressed && styles.openLinkBtnPressed]}
+            >
+              <ExternalLink size={16} color={Colors.primary} strokeWidth={2} />
               <Text style={styles.openLinkText}>Open scanned link</Text>
             </Pressable>
           )}
-
-          <View style={styles.spacer14} />
-
-          <View style={styles.actionsRow}>
-            <Pressable onPress={() => router.replace("/")} style={styles.secondaryBtn}>
-              <Text style={styles.secondaryBtnText}>Back</Text>
-            </Pressable>
-            <Pressable onPress={onShareText} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>SHARE REPORT</Text>
-            </Pressable>
-          </View>
-
-          <Pressable onPress={onShareImage} style={styles.shareImageBtn}>
-            <Text style={styles.shareImageText}>SHARE AS IMAGE</Text>
-          </Pressable>
-
-          <View style={styles.spacer10} />
-          <Text style={styles.footerDisclaimer}>{shareCardFooter}</Text>
         </View>
 
-        <View style={styles.spacer14} />
+        <View style={styles.actionsCard}>
+          <Pressable 
+            onPress={onShareText} 
+            style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
+          >
+            <Share2 size={18} color="white" strokeWidth={2.5} />
+            <Text style={styles.primaryBtnText}>Share Report</Text>
+          </Pressable>
+          
+          <Pressable 
+            onPress={onShareImage} 
+            style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
+          >
+            <ImageIcon size={18} color="white" strokeWidth={2} />
+            <Text style={styles.secondaryBtnText}>Share as Image</Text>
+          </Pressable>
+        </View>
 
-        <Text style={styles.sectionTitle}>Why (A–F)</Text>
+        <View style={styles.reasonsSection}>
+          <Text style={styles.sectionTitle}>Analysis Details</Text>
+          <Text style={styles.sectionSubtitle}>Tap to expand each category</Text>
 
-        {(Object.keys(reasonsMerged) as ReasonKey[]).map((k) => {
-          const item = reasonsMerged[k];
-          const isOpen = expanded[k];
-          return (
-            <View key={k} style={styles.reasonCard}>
-              <Pressable onPress={() => toggleExpand(k)} style={styles.reasonHeader}>
-                <Text style={styles.reasonKey}>{k}</Text>
-                <View style={styles.reasonContentWrapper}>
-                  <Text style={styles.reasonTitle}>{item.title}</Text>
-                  <Text style={styles.reasonSummary}>{item.summary}</Text>
+          {(Object.keys(reasonsMerged) as ReasonKey[]).map((k) => {
+            const item = reasonsMerged[k];
+            const isOpen = expanded[k];
+            return (
+              <Pressable 
+                key={k} 
+                onPress={() => toggleExpand(k)} 
+                style={({ pressed }) => [
+                  styles.reasonCard,
+                  pressed && styles.reasonCardPressed
+                ]}
+              >
+                <View style={styles.reasonHeader}>
+                  <View style={styles.reasonKeyBadge}>
+                    <Text style={styles.reasonKey}>{k}</Text>
+                  </View>
+                  <View style={styles.reasonContentWrapper}>
+                    <Text style={styles.reasonTitle}>{item.title}</Text>
+                    <Text style={styles.reasonSummary}>{item.summary}</Text>
+                  </View>
+                  {isOpen ? (
+                    <ChevronDown size={20} color={Colors.textTertiary} strokeWidth={2} />
+                  ) : (
+                    <ChevronRight size={20} color={Colors.textTertiary} strokeWidth={2} />
+                  )}
                 </View>
-                <Text style={styles.chevron}>{isOpen ? "▾" : "▸"}</Text>
+
+                {isOpen && (
+                  <View style={styles.reasonBody}>
+                    {!!item.details?.length && (
+                      <View style={styles.reasonDetailsSection}>
+                        <Text style={styles.reasonBodyTitle}>Details</Text>
+                        {item.details.map((d, i) => (
+                          <Text key={i} style={styles.reasonBullet}>• {d}</Text>
+                        ))}
+                      </View>
+                    )}
+
+                    {!!item.whatWouldVerify?.length && (
+                      <View style={styles.reasonDetailsSection}>
+                        <Text style={styles.reasonBodyTitle}>What would verify this?</Text>
+                        {item.whatWouldVerify.map((d, i) => (
+                          <Text key={i} style={styles.reasonBullet}>• {d}</Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
               </Pressable>
+            );
+          })}
+        </View>
 
-              {isOpen && (
-                <View style={styles.reasonBody}>
-                  {!!item.details?.length && (
-                    <>
-                      <Text style={styles.reasonBodyTitle}>Details</Text>
-                      {item.details.map((d, i) => (
-                        <Text key={i} style={styles.reasonBullet}>• {d}</Text>
-                      ))}
-                    </>
-                  )}
+        <View style={styles.shareCardSection}>
+          <Text style={styles.sectionTitle}>Share Card Preview</Text>
 
-                  {!!item.whatWouldVerify?.length && (
-                    <>
-                      <View style={styles.spacer10} />
-                      <Text style={styles.reasonBodyTitle}>What would verify this?</Text>
-                      {item.whatWouldVerify.map((d, i) => (
-                        <Text key={i} style={styles.reasonBullet}>• {d}</Text>
-                      ))}
-                    </>
-                  )}
-                </View>
-              )}
+          <View ref={shareCardRef} collapsable={false} style={[styles.shareCard, { borderColor: badgeColor }]}>
+            <View style={styles.shareCardHeader}>
+              <Shield size={20} color={Colors.primary} strokeWidth={2} />
+              <Text style={styles.shareCardBrand}>REAiL</Text>
             </View>
-          );
-        })}
-
-        <View style={styles.spacer18} />
-
-        <View style={styles.shareCardWrapper}>
-          <Text style={styles.sectionTitle}>Share Card</Text>
-
-          <View ref={shareCardRef} collapsable={false} style={styles.shareCard}>
-            <Text style={styles.shareCardHeadline}>REAiL Scan Result</Text>
-            <Text style={styles.shareCardBadge}>{badgeLabel(badge)}</Text>
-            <Text style={styles.shareCardMeta}>Score: {score}/100</Text>
-            <Text style={styles.shareCardMeta}>Domain: {domain}</Text>
+            <View style={styles.shareCardContent}>
+              <BadgeIcon badge={badge} size={28} />
+              <Text style={[styles.shareCardBadge, { color: badgeColor }]}>{badgeLabel(badge)}</Text>
+              <Text style={styles.shareCardScore}>Score: {score}/100</Text>
+              <Text style={styles.shareCardDomain}>{domain}</Text>
+            </View>
             <Text style={styles.shareCardFooter}>{shareCardFooter}</Text>
           </View>
         </View>
+
+        <Pressable 
+          onPress={() => router.replace("/")} 
+          style={({ pressed }) => [styles.newScanBtn, pressed && styles.newScanBtnPressed]}
+        >
+          <Text style={styles.newScanText}>Scan Another Link</Text>
+        </Pressable>
+
+        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       <Modal
@@ -402,11 +503,18 @@ export default function ResultScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setDisclaimerOpen(false)}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Verification disclaimer</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Verification Disclaimer</Text>
+              <Pressable onPress={() => setDisclaimerOpen(false)} style={styles.modalCloseIcon}>
+                <X size={20} color={Colors.textSecondary} strokeWidth={2} />
+              </Pressable>
+            </View>
             <Text style={styles.modalBody}>{disclaimerFull}</Text>
-
-            <Pressable style={styles.modalCloseBtn} onPress={() => setDisclaimerOpen(false)}>
-              <Text style={styles.modalCloseText}>Close</Text>
+            <Pressable 
+              style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.modalCloseBtnPressed]} 
+              onPress={() => setDisclaimerOpen(false)}
+            >
+              <Text style={styles.modalCloseText}>Got it</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -418,7 +526,10 @@ export default function ResultScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0b0c10",
+    backgroundColor: Colors.background,
+  },
+  safeArea: {
+    backgroundColor: Colors.background,
   },
   header: {
     height: 56,
@@ -426,296 +537,406 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
   },
   headerBtn: {
-    minWidth: 44,
-    minHeight: 44,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundSecondary,
   },
-  headerBtnText: {
-    color: "white",
-    fontSize: 14,
-    opacity: 0.9,
+  headerBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
   },
   headerTitle: {
     color: "white",
-    fontSize: 16,
-    fontWeight: "700" as const,
-    opacity: 0.95,
+    fontSize: 17,
+    fontWeight: "600" as const,
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
   },
-  card: {
-    borderRadius: 18,
-    padding: 16,
+  mainCard: {
+    borderRadius: 20,
+    padding: 24,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: Colors.border,
+    alignItems: "center",
   },
-  domainText: {
-    color: "white",
-    opacity: 0.8,
-    fontSize: 12,
+  badgeSection: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  badgeIconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
   badgeText: {
-    color: "white",
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "800" as const,
+    letterSpacing: 1,
+    marginBottom: 4,
   },
-  scoreText: {
-    color: "white",
-    opacity: 0.9,
-    marginTop: 6,
+  domainText: {
+    color: Colors.textSecondary,
     fontSize: 14,
   },
-  disclaimerPill: {
-    marginTop: 8,
-    alignSelf: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+  scoreSection: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 20,
   },
-  disclaimerPillText: {
-    color: "white",
-    fontSize: 12,
-    opacity: 0.85,
+  scoreCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: Colors.border,
   },
-  disclaimerInfoIcon: {
-    color: "white",
-    opacity: 0.9,
+  scoreValue: {
+    fontSize: 28,
+    fontWeight: "800" as const,
+  },
+  scoreLabel: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    fontWeight: "500" as const,
+  },
+  scoreBarContainer: {
+    flex: 1,
+  },
+  scoreBarTrack: {
+    height: 8,
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  scoreBarFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  scoreLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  scoreLabelText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+  },
+  verdictContainer: {
+    backgroundColor: Colors.backgroundTertiary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   verdictText: {
-    color: "white",
-    opacity: 0.75,
-    marginTop: 4,
-    fontSize: 13,
-    textAlign: "center",
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: "center" as const,
+    lineHeight: 20,
+  },
+  disclaimerPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.backgroundTertiary,
+    marginBottom: 12,
+  },
+  disclaimerPillPressed: {
+    opacity: 0.7,
+  },
+  disclaimerPillText: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontWeight: "500" as const,
   },
   openLinkBtn: {
-    marginTop: 12,
-    alignSelf: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundTertiary,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  openLinkBtnPressed: {
+    backgroundColor: Colors.cardHighlight,
   },
   openLinkText: {
-    color: "white",
-    fontWeight: "700" as const,
+    color: Colors.primary,
+    fontWeight: "600" as const,
+    fontSize: 14,
   },
-  actionsRow: {
-    flexDirection: "row",
+  actionsCard: {
+    marginTop: 12,
     gap: 10,
-    justifyContent: "space-between",
   },
   primaryBtn: {
-    flex: 1,
-    borderRadius: 16,
-    paddingVertical: 12,
+    flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(120,180,255,0.28)",
-    borderWidth: 1,
-    borderColor: "rgba(120,180,255,0.35)",
+    justifyContent: "center",
+    gap: 10,
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: Colors.primary,
+  },
+  primaryBtnPressed: {
+    backgroundColor: Colors.primaryDark,
   },
   primaryBtnText: {
     color: "white",
-    fontWeight: "800" as const,
+    fontWeight: "700" as const,
+    fontSize: 15,
   },
   secondaryBtn: {
-    width: 90,
-    borderRadius: 16,
-    paddingVertical: 12,
+    flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    justifyContent: "center",
+    gap: 10,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: Colors.border,
+  },
+  secondaryBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
   },
   secondaryBtnText: {
     color: "white",
-    fontWeight: "700" as const,
-    opacity: 0.9,
+    fontWeight: "600" as const,
+    fontSize: 14,
   },
-  shareImageBtn: {
-    marginTop: 10,
-    borderRadius: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-  },
-  shareImageText: {
-    color: "white",
-    fontWeight: "800" as const,
-    opacity: 0.95,
-  },
-  footerDisclaimer: {
-    color: "white",
-    opacity: 0.65,
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 10,
+  reasonsSection: {
+    marginTop: 24,
   },
   sectionTitle: {
     color: "white",
-    fontSize: 14,
-    fontWeight: "800" as const,
-    marginBottom: 8,
-    opacity: 0.9,
+    fontSize: 18,
+    fontWeight: "700" as const,
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    color: Colors.textTertiary,
+    fontSize: 13,
+    marginBottom: 16,
   },
   reasonCard: {
-    borderRadius: 16,
+    borderRadius: 14,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: Colors.border,
     marginBottom: 10,
     overflow: "hidden",
   },
+  reasonCardPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
   reasonHeader: {
     flexDirection: "row",
-    gap: 10,
-    padding: 14,
     alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  reasonKeyBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   reasonKey: {
-    color: "white",
-    fontWeight: "900" as const,
-    width: 18,
-    opacity: 0.9,
+    color: Colors.primary,
+    fontWeight: "800" as const,
+    fontSize: 14,
   },
   reasonContentWrapper: {
     flex: 1,
   },
   reasonTitle: {
     color: "white",
-    fontWeight: "800" as const,
+    fontWeight: "600" as const,
+    fontSize: 14,
     marginBottom: 2,
   },
   reasonSummary: {
-    color: "white",
-    opacity: 0.75,
+    color: Colors.textSecondary,
     fontSize: 12,
-  },
-  chevron: {
-    color: "white",
-    opacity: 0.7,
-    fontSize: 16,
+    lineHeight: 16,
   },
   reasonBody: {
     paddingHorizontal: 14,
     paddingBottom: 14,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  reasonDetailsSection: {
+    marginTop: 10,
   },
   reasonBodyTitle: {
-    color: "white",
-    fontWeight: "800" as const,
-    opacity: 0.9,
-    marginTop: 8,
+    color: Colors.textSecondary,
+    fontWeight: "600" as const,
+    fontSize: 12,
+    marginBottom: 6,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
   },
   reasonBullet: {
-    color: "white",
-    opacity: 0.78,
-    fontSize: 12,
-    marginTop: 4,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+    marginLeft: 4,
   },
-  shareCardWrapper: {
-    marginTop: 4,
+  shareCardSection: {
+    marginTop: 24,
   },
   shareCard: {
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(0,0,0,0.35)",
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 2,
+    backgroundColor: Colors.backgroundSecondary,
   },
-  shareCardHeadline: {
+  shareCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  shareCardBrand: {
     color: "white",
-    fontWeight: "900" as const,
-    fontSize: 16,
-    marginBottom: 8,
+    fontWeight: "800" as const,
+    fontSize: 18,
+  },
+  shareCardContent: {
+    alignItems: "center",
+    paddingVertical: 12,
   },
   shareCardBadge: {
-    color: "white",
-    fontWeight: "900" as const,
-    fontSize: 18,
-    marginBottom: 6,
+    fontWeight: "800" as const,
+    fontSize: 20,
+    marginTop: 8,
+    marginBottom: 4,
   },
-  shareCardMeta: {
-    color: "white",
-    opacity: 0.85,
-    fontSize: 12,
-    marginBottom: 3,
+  shareCardScore: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  shareCardDomain: {
+    color: Colors.textTertiary,
+    fontSize: 13,
   },
   shareCardFooter: {
-    marginTop: 10,
-    fontSize: 10,
-    opacity: 0.75,
-    color: "white",
-    textAlign: "center",
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    fontSize: 11,
+    color: Colors.textTertiary,
+    textAlign: "center" as const,
+  },
+  newScanBtn: {
+    marginTop: 24,
+    height: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  newScanBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  newScanText: {
+    color: Colors.primary,
+    fontWeight: "600" as const,
+    fontSize: 15,
+  },
+  bottomSpacer: {
+    height: 40,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
   },
   modalCard: {
-    backgroundColor: "rgba(20,20,22,1)",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: Colors.border,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
   },
   modalTitle: {
     color: "white",
-    fontSize: 16,
-    fontWeight: "800" as const,
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: "700" as const,
+  },
+  modalCloseIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalBody: {
-    color: "white",
-    fontSize: 13,
-    lineHeight: 18,
-    opacity: 0.9,
-    marginBottom: 12,
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 20,
   },
   modalCloseBtn: {
-    alignSelf: "flex-end",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 48,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  modalCloseBtnPressed: {
+    backgroundColor: Colors.primaryDark,
   },
   modalCloseText: {
     color: "white",
-    fontSize: 13,
-    fontWeight: "800" as const,
-  },
-  spacer10: {
-    height: 10,
-  },
-  spacer14: {
-    height: 14,
-  },
-  spacer18: {
-    height: 18,
+    fontSize: 15,
+    fontWeight: "600" as const,
   },
   loadingText: {
-    color: "white",
-    opacity: 0.65,
-    marginTop: 6,
+    color: Colors.textSecondary,
+    marginTop: 8,
     textAlign: "center" as const,
     fontSize: 13,
   },
   errorText: {
-    color: "#ff6b6b",
+    color: Colors.highRisk,
     marginTop: 8,
     textAlign: "center" as const,
     fontSize: 13,
