@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import * as ImagePicker from "expo-image-picker";
 
 export default function ScanHomeScreen() {
   const router = useRouter();
@@ -33,30 +32,6 @@ export default function ScanHomeScreen() {
     Keyboard.dismiss();
     if (!cleanUrl) return;
     router.push(`/scanning?url=${encodeURIComponent(cleanUrl)}`);
-  };
-
-  const onShareToScan = () => {
-    router.push("/share-tutorial");
-  };
-
-  const onUploadScreenshot = async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) return;
-
-      const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
-      });
-
-      if (res.canceled) return;
-      const uri = res.assets?.[0]?.uri;
-      if (!uri) return;
-
-      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}`);
-    } catch {
-      // ignore
-    }
   };
 
   const chips = ["TikTok", "Instagram", "Facebook", "YouTube", "News", "Shop"];
@@ -107,19 +82,7 @@ export default function ScanHomeScreen() {
           <Text style={styles.scanText}>SCAN NOW</Text>
         </Pressable>
 
-        <View style={styles.spacer12} />
-
-        <View style={styles.row2}>
-          <Pressable onPress={onShareToScan} style={styles.secondaryBtn}>
-            <Text style={styles.secondaryText}>SHARE TO SCAN</Text>
-          </Pressable>
-
-          <Pressable onPress={onUploadScreenshot} style={styles.secondaryBtn}>
-            <Text style={styles.secondaryText}>UPLOAD SCREENSHOT</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.spacer12} />
+        <View style={styles.spacer14} />
 
         <View style={styles.chipsRow}>
           {chips.map((c) => (
@@ -131,9 +94,9 @@ export default function ScanHomeScreen() {
 
         <View style={styles.spacer14} />
 
-        <Text style={styles.footerHint}>
-          Tip: Share a link to REAiL Scan to auto-scan.
-        </Text>
+        <Pressable onPress={() => router.push("/tools")} style={styles.moreLink}>
+          <Text style={styles.moreLinkText}>More options →</Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -242,26 +205,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 15,
   },
-  row2: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  secondaryBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-  },
-  secondaryText: {
-    color: "white",
-    fontWeight: "900",
-    opacity: 0.9,
-    fontSize: 12,
-  },
   chipsRow: {
     flexDirection: "row",
     gap: 8,
@@ -282,10 +225,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
   },
-  footerHint: {
-    color: "white",
-    opacity: 0.6,
-    marginTop: 6,
-    fontSize: 12,
+  moreLink: {
+    alignSelf: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  moreLinkText: {
+    color: "rgba(120,180,255,0.9)",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });
