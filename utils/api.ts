@@ -1,7 +1,11 @@
 // utils/api.ts
+import Constants from "expo-constants";
 import { getDeviceId } from "./deviceId";
 
-export const BASE_URL = "https://api.reail.app";
+export const BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL as string) ??
+  "https://api.reail.app";
 
 async function headers() {
   const deviceId = await getDeviceId();
