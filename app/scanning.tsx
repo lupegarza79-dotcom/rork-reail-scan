@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Animated, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Shield, Wifi, WifiOff, CheckCircle } from "lucide-react-native";
+import { Shield, Wifi, WifiOff } from "lucide-react-native";
 import { scanService } from "../utils/scanService";
 import { useNetwork } from "../hooks/useNetwork";
 import Colors from "@/constants/colors";

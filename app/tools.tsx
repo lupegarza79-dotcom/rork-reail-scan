@@ -72,7 +72,7 @@ export default function ToolsScreen() {
         <View style={styles.spacer} />
 
         <Text style={styles.hint}>
-          Tip: Use "Share to Scan" for the fastest verification workflow.
+          Tip: Use Share to Scan for the fastest verification workflow.
         </Text>
       </View>
     </View>
