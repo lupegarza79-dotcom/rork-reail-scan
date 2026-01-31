@@ -254,7 +254,7 @@ export default function ResultScreen() {
     
     try {
       await Share.share({ message });
-    } catch (err) {
+    } catch {
       // Fallback for web or when share fails
       try {
         await Clipboard.setStringAsync(message);

@@ -63,7 +63,7 @@ export default function ScanningScreen() {
       easing: Easing.out(Easing.quad),
       useNativeDriver: false,
     }).start();
-  }, []);
+  }, [pulseAnim, rotateAnim, progressAnim]);
 
   const steps = useMemo(
     () => [
