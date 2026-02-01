@@ -28,7 +28,10 @@ import {
   ShieldX,
   Info,
   Image as ImageIcon,
-  X
+  X,
+  Bot,
+  User,
+  AlertTriangle
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanResultById } from "../utils/api";
@@ -44,6 +47,15 @@ type Reason = {
   whatWouldVerify?: string[];
 };
 
+type ContentMetrics = {
+  aiProbability?: number;
+  humanProbability?: number;
+  authenticityScore?: number;
+  manipulationRisk?: number;
+  scamIndicators?: number;
+  confidenceLevel?: 'high' | 'medium' | 'low';
+};
+
 type ScanResult = {
   scanId?: string;
   badge?: "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
@@ -53,6 +65,8 @@ type ScanResult = {
   url?: string;
   thumbnailUrl?: string;
   reasons?: Partial<Record<ReasonKey, Reason>>;
+  metrics?: ContentMetrics;
+  scanVersion?: string;
   shareCard?: {
     headline?: string;
     badge?: string;
@@ -409,6 +423,72 @@ export default function ResultScreen() {
             <Text style={styles.secondaryBtnText}>Share as Image</Text>
           </Pressable>
         </View>
+
+        {result.metrics && (
+          <View style={styles.metricsSection}>
+            <Text style={styles.sectionTitle}>Content Analysis</Text>
+            <Text style={styles.sectionSubtitle}>AI vs Human detection metrics</Text>
+            
+            <View style={styles.metricsGrid}>
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeader}>
+                  <Bot size={16} color={Colors.accent} strokeWidth={2} />
+                  <Text style={styles.metricLabel}>AI Probability</Text>
+                </View>
+                <Text style={[styles.metricValue, { color: (result.metrics.aiProbability ?? 0) > 50 ? Colors.highRisk : Colors.verified }]}>
+                  {result.metrics.aiProbability ?? 50}%
+                </Text>
+                <View style={styles.metricBar}>
+                  <View style={[styles.metricBarFill, { width: `${result.metrics.aiProbability ?? 50}%`, backgroundColor: (result.metrics.aiProbability ?? 0) > 50 ? Colors.highRisk : Colors.verified }]} />
+                </View>
+              </View>
+              
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeader}>
+                  <User size={16} color={Colors.verified} strokeWidth={2} />
+                  <Text style={styles.metricLabel}>Human Probability</Text>
+                </View>
+                <Text style={[styles.metricValue, { color: (result.metrics.humanProbability ?? 0) > 50 ? Colors.verified : Colors.unverified }]}>
+                  {result.metrics.humanProbability ?? 50}%
+                </Text>
+                <View style={styles.metricBar}>
+                  <View style={[styles.metricBarFill, { width: `${result.metrics.humanProbability ?? 50}%`, backgroundColor: (result.metrics.humanProbability ?? 0) > 50 ? Colors.verified : Colors.unverified }]} />
+                </View>
+              </View>
+              
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeader}>
+                  <AlertTriangle size={16} color={Colors.unverified} strokeWidth={2} />
+                  <Text style={styles.metricLabel}>Manipulation Risk</Text>
+                </View>
+                <Text style={[styles.metricValue, { color: (result.metrics.manipulationRisk ?? 0) > 50 ? Colors.highRisk : Colors.verified }]}>
+                  {result.metrics.manipulationRisk ?? 50}%
+                </Text>
+                <View style={styles.metricBar}>
+                  <View style={[styles.metricBarFill, { width: `${result.metrics.manipulationRisk ?? 50}%`, backgroundColor: (result.metrics.manipulationRisk ?? 0) > 50 ? Colors.highRisk : Colors.verified }]} />
+                </View>
+              </View>
+              
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeader}>
+                  <ShieldAlert size={16} color={Colors.highRisk} strokeWidth={2} />
+                  <Text style={styles.metricLabel}>Scam Indicators</Text>
+                </View>
+                <Text style={[styles.metricValue, { color: (result.metrics.scamIndicators ?? 0) > 2 ? Colors.highRisk : Colors.verified }]}>
+                  {result.metrics.scamIndicators ?? 0}/10
+                </Text>
+              </View>
+            </View>
+            
+            {result.metrics.confidenceLevel && (
+              <View style={styles.confidenceBadge}>
+                <Text style={styles.confidenceText}>
+                  Analysis confidence: {result.metrics.confidenceLevel.toUpperCase()}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.reasonsSection}>
           <Text style={styles.sectionTitle}>Analysis Details</Text>
@@ -872,6 +952,62 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: "600" as const,
     fontSize: 15,
+  },
+  metricsSection: {
+    marginTop: 24,
+  },
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 12,
+  },
+  metricCard: {
+    width: "48%" as any,
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  metricHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  metricLabel: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "600" as const,
+  },
+  metricValue: {
+    fontSize: 24,
+    fontWeight: "800" as const,
+    marginBottom: 8,
+  },
+  metricBar: {
+    height: 4,
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  metricBarFill: {
+    height: "100%",
+    borderRadius: 2,
+  },
+  confidenceBadge: {
+    marginTop: 12,
+    alignSelf: "center",
+    backgroundColor: Colors.backgroundTertiary,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  confidenceText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "600" as const,
   },
   bottomSpacer: {
     height: 40,

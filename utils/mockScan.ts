@@ -1,13 +1,26 @@
-import { ScanResult, BadgeType, ScanReasons } from '@/types/scan';
+import { ScanResult, BadgeType, ScanReasons, ContentMetrics } from '@/types/scan';
 
 const platformPatterns: Record<string, ScanResult['platform']> = {
   'tiktok': 'tiktok',
+  'vm.tiktok': 'tiktok',
   'instagram': 'instagram',
+  'instagr.am': 'instagram',
   'facebook': 'facebook',
   'youtube': 'youtube',
   'youtu.be': 'youtube',
   'fb.com': 'facebook',
+  'fb.watch': 'facebook',
   'ig.com': 'instagram',
+  'twitter': 'twitter',
+  'x.com': 'twitter',
+  't.co': 'twitter',
+  'linkedin': 'linkedin',
+  'reddit': 'reddit',
+  'redd.it': 'reddit',
+  'crypto': 'crypto',
+  'bitcoin': 'crypto',
+  'opensea': 'crypto',
+  'binance': 'crypto',
 };
 
 export function detectPlatform(url: string): ScanResult['platform'] {
@@ -17,11 +30,14 @@ export function detectPlatform(url: string): ScanResult['platform'] {
       return platform;
     }
   }
-  if (lowerUrl.includes('news') || lowerUrl.includes('article')) {
+  if (lowerUrl.includes('news') || lowerUrl.includes('article') || lowerUrl.includes('bbc') || lowerUrl.includes('cnn')) {
     return 'news';
   }
-  if (lowerUrl.includes('shop') || lowerUrl.includes('store') || lowerUrl.includes('buy')) {
+  if (lowerUrl.includes('shop') || lowerUrl.includes('store') || lowerUrl.includes('buy') || lowerUrl.includes('amazon') || lowerUrl.includes('ebay')) {
     return 'shop';
+  }
+  if (lowerUrl.includes('crypto') || lowerUrl.includes('nft') || lowerUrl.includes('bitcoin') || lowerUrl.includes('eth')) {
+    return 'crypto';
   }
   return 'other';
 }
@@ -138,6 +154,20 @@ function generateReasons(badge: BadgeType): ScanReasons {
   };
 }
 
+function generateMetrics(badge: BadgeType, score: number): ContentMetrics {
+  const isVerified = badge === 'VERIFIED';
+  const isHighRisk = badge === 'HIGH_RISK';
+  
+  return {
+    aiProbability: isVerified ? Math.floor(Math.random() * 20) + 5 : isHighRisk ? Math.floor(Math.random() * 40) + 40 : Math.floor(Math.random() * 30) + 25,
+    humanProbability: isVerified ? Math.floor(Math.random() * 20) + 75 : isHighRisk ? Math.floor(Math.random() * 30) + 20 : Math.floor(Math.random() * 30) + 40,
+    authenticityScore: score,
+    manipulationRisk: 100 - score,
+    scamIndicators: isHighRisk ? Math.floor(Math.random() * 5) + 3 : isVerified ? 0 : Math.floor(Math.random() * 2),
+    confidenceLevel: isVerified ? 'high' : isHighRisk ? 'medium' : 'low',
+  };
+}
+
 export function generateMockScan(url: string): ScanResult {
   const { score, badge } = generateScore();
   const platform = detectPlatform(url);
@@ -153,5 +183,7 @@ export function generateMockScan(url: string): ScanResult {
     reasons: generateReasons(badge),
     timestamp: Date.now(),
     title: `Content from ${domain}`,
+    metrics: generateMetrics(badge, score),
+    scanVersion: '2.0.0',
   };
 }

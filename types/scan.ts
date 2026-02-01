@@ -16,17 +16,28 @@ export interface ScanReasons {
   F: ReasonDetail;
 }
 
+export interface ContentMetrics {
+  aiProbability: number; // 0-100 likelihood content is AI-generated
+  humanProbability: number; // 0-100 likelihood content is human-created
+  authenticityScore: number; // 0-100 overall authenticity
+  manipulationRisk: number; // 0-100 risk of manipulation
+  scamIndicators: number; // Count of scam patterns detected
+  confidenceLevel: 'high' | 'medium' | 'low';
+}
+
 export interface ScanResult {
   id: string;
   url: string;
   domain: string;
-  platform: 'tiktok' | 'instagram' | 'facebook' | 'youtube' | 'news' | 'shop' | 'other';
+  platform: 'tiktok' | 'instagram' | 'facebook' | 'youtube' | 'twitter' | 'linkedin' | 'reddit' | 'news' | 'shop' | 'crypto' | 'other';
   badge: BadgeType;
   score: number;
   reasons: ScanReasons;
   timestamp: number;
   thumbnail?: string;
   title?: string;
+  metrics?: ContentMetrics;
+  scanVersion?: string;
 }
 
 export interface ShareCard {
