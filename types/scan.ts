@@ -1,5 +1,16 @@
 export type BadgeType = 'VERIFIED' | 'UNVERIFIED' | 'HIGH_RISK';
 
+export type EvidenceStatus = 'verified' | 'unverified' | 'failed' | 'pending';
+
+export interface EvidenceCard {
+  id: string;
+  provider: string;
+  status: EvidenceStatus;
+  summary: string;
+  payload?: Record<string, unknown>;
+  timestamp?: number;
+}
+
 export interface ReasonDetail {
   title: string;
   summary: string;
@@ -38,6 +49,8 @@ export interface ScanResult {
   title?: string;
   metrics?: ContentMetrics;
   scanVersion?: string;
+  evidence?: EvidenceCard[];
+  summary?: string;
 }
 
 export interface ShareCard {

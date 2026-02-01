@@ -31,7 +31,11 @@ import {
   X,
   Bot,
   User,
-  AlertTriangle
+  AlertTriangle,
+  FileCheck,
+  FileX,
+  FileClock,
+  FileQuestion
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanResultById } from "../utils/api";
@@ -56,6 +60,17 @@ type ContentMetrics = {
   confidenceLevel?: 'high' | 'medium' | 'low';
 };
 
+type EvidenceStatus = 'verified' | 'unverified' | 'failed' | 'pending';
+
+type EvidenceCard = {
+  id: string;
+  provider: string;
+  status: EvidenceStatus;
+  summary: string;
+  payload?: Record<string, unknown>;
+  timestamp?: number;
+};
+
 type ScanResult = {
   scanId?: string;
   badge?: "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
@@ -74,6 +89,8 @@ type ScanResult = {
     domain?: string;
     timestamp?: string;
   };
+  evidence?: EvidenceCard[];
+  summary?: string;
 };
 
 type Params = {
@@ -151,6 +168,7 @@ export default function ResultScreen() {
     E: false,
     F: false,
   });
+  const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({});
 
   const shareCardRef = useRef<View>(null);
   const [cached, setCached] = useState<ScanResult | null>(null);
@@ -322,6 +340,40 @@ export default function ResultScreen() {
     setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
   };
 
+  const toggleEvidenceExpand = (id: string) => {
+    setExpandedEvidence((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const getEvidenceStatusIcon = (status: EvidenceStatus) => {
+    switch (status) {
+      case 'verified':
+        return <FileCheck size={18} color={Colors.verified} strokeWidth={2} />;
+      case 'unverified':
+        return <FileQuestion size={18} color={Colors.unverified} strokeWidth={2} />;
+      case 'failed':
+        return <FileX size={18} color={Colors.highRisk} strokeWidth={2} />;
+      case 'pending':
+        return <FileClock size={18} color={Colors.textTertiary} strokeWidth={2} />;
+      default:
+        return <FileQuestion size={18} color={Colors.textTertiary} strokeWidth={2} />;
+    }
+  };
+
+  const getEvidenceStatusColor = (status: EvidenceStatus) => {
+    switch (status) {
+      case 'verified':
+        return Colors.verified;
+      case 'unverified':
+        return Colors.unverified;
+      case 'failed':
+        return Colors.highRisk;
+      case 'pending':
+        return Colors.textTertiary;
+      default:
+        return Colors.textTertiary;
+    }
+  };
+
   const badgeColor = getBadgeColor(badge);
   const badgeBg = getBadgeBg(badge);
 
@@ -487,6 +539,70 @@ export default function ResultScreen() {
                 </Text>
               </View>
             )}
+          </View>
+        )}
+
+        {result.evidence && result.evidence.length > 0 && (
+          <View style={styles.evidenceSection}>
+            <Text style={styles.sectionTitle}>Evidence Pack</Text>
+            <Text style={styles.sectionSubtitle}>Verification sources and signals</Text>
+            
+            {result.summary && (
+              <View style={styles.evidenceSummaryCard}>
+                <Text style={styles.evidenceSummaryText}>{result.summary}</Text>
+              </View>
+            )}
+
+            {result.evidence.map((item) => {
+              const isOpen = expandedEvidence[item.id] ?? false;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => toggleEvidenceExpand(item.id)}
+                  style={({ pressed }) => [
+                    styles.evidenceCard,
+                    pressed && styles.evidenceCardPressed
+                  ]}
+                >
+                  <View style={styles.evidenceHeader}>
+                    <View style={styles.evidenceIconContainer}>
+                      {getEvidenceStatusIcon(item.status)}
+                    </View>
+                    <View style={styles.evidenceContentWrapper}>
+                      <View style={styles.evidenceProviderRow}>
+                        <Text style={styles.evidenceProvider}>{item.provider}</Text>
+                        <View style={[styles.evidenceStatusBadge, { backgroundColor: `${getEvidenceStatusColor(item.status)}20` }]}>
+                          <Text style={[styles.evidenceStatusText, { color: getEvidenceStatusColor(item.status) }]}>
+                            {item.status.toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.evidenceSummary} numberOfLines={isOpen ? undefined : 2}>
+                        {item.summary}
+                      </Text>
+                    </View>
+                    {item.payload && (
+                      isOpen ? (
+                        <ChevronDown size={18} color={Colors.textTertiary} strokeWidth={2} />
+                      ) : (
+                        <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2} />
+                      )
+                    )}
+                  </View>
+
+                  {isOpen && item.payload && (
+                    <View style={styles.evidencePayload}>
+                      <Text style={styles.evidencePayloadTitle}>Raw Data</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <Text style={styles.evidencePayloadText}>
+                          {JSON.stringify(item.payload, null, 2)}
+                        </Text>
+                      </ScrollView>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
@@ -1008,6 +1124,97 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
     fontWeight: "600" as const,
+  },
+  evidenceSection: {
+    marginTop: 24,
+  },
+  evidenceSummaryCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  evidenceSummaryText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  evidenceCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  evidenceCardPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  evidenceHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 14,
+    gap: 12,
+  },
+  evidenceIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  evidenceContentWrapper: {
+    flex: 1,
+  },
+  evidenceProviderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  evidenceProvider: {
+    color: "white",
+    fontWeight: "600" as const,
+    fontSize: 14,
+  },
+  evidenceStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  evidenceStatusText: {
+    fontSize: 9,
+    fontWeight: "700" as const,
+    letterSpacing: 0.5,
+  },
+  evidenceSummary: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  evidencePayload: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  evidencePayloadTitle: {
+    color: Colors.textTertiary,
+    fontSize: 10,
+    fontWeight: "600" as const,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  evidencePayloadText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontFamily: "monospace",
+    lineHeight: 16,
   },
   bottomSpacer: {
     height: 40,
