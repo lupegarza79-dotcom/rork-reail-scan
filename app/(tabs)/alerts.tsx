@@ -9,10 +9,20 @@ import {
   Alert,
   StyleSheet,
   Platform,
+  Modal,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Bell } from "lucide-react-native";
+import { 
+  Bell, 
+  Eye, 
+  Share2, 
+  Search, 
+  CheckCheck, 
+  Trash2,
+  X,
+  Plus,
+} from "lucide-react-native";
 import {
   ReailAlert,
   loadAlerts,
@@ -27,45 +37,44 @@ import {
   markAlertReadApi,
   markAllAlertsReadApi,
 } from "../../utils/api";
+import BadgePill, { getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
-
-function badgeEmoji(b: ReailAlert["badge"]) {
-  if (b === "VERIFIED") return "✅";
-  if (b === "UNVERIFIED") return "⚠️";
-  return "❌";
-}
 
 export default function AlertsScreen() {
   const router = useRouter();
   const [alerts, setAlerts] = useState<ReailAlert[]>([]);
   const [q, setQ] = useState("");
+  const [watchModalOpen, setWatchModalOpen] = useState(false);
+  const [watchInput, setWatchInput] = useState("");
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
-        // Try backend first
         const remote = await fetchAlerts();
         if (!active) return;
 
         if (remote?.items?.length) {
-          const mapped: ReailAlert[] = remote.items.map((x: any) => ({
-            id: x.id,
-            createdAt: x.created_at,
-            entityType: x.entity_type,
-            entityKey: x.entity_key,
-            scanId: x.scan_id,
-            badge: x.badge,
-            score: x.score,
-            message: x.message,
-            topReasons: x.top_reasons || [],
-            readAt: x.read_at,
+          const mapped: ReailAlert[] = remote.items.map((x: Record<string, unknown>) => ({
+            id: x.id as string,
+            createdAt: typeof x.created_at === 'number' 
+              ? new Date(x.created_at).toISOString() 
+              : (x.created_at as string),
+            entityType: x.entity_type as "domain" | "vendor" | "creator" | "link",
+            entityKey: x.entity_key as string,
+            scanId: x.scan_id as string,
+            badge: x.badge as ReailAlert["badge"],
+            score: x.score as number,
+            message: x.message as string,
+            topReasons: (x.top_reasons as ReailAlert["topReasons"]) || [],
+            readAt: x.read_at ? (typeof x.read_at === 'number' 
+              ? new Date(x.read_at).toISOString() 
+              : (x.read_at as string)) : undefined,
           }));
           setAlerts(mapped);
           return;
         }
 
-        // Fallback to local demo
         const seeded = await seedDemoAlertsIfEmpty();
         const arr = seeded?.length ? seeded : await loadAlerts();
         if (active) setAlerts(arr);
@@ -87,7 +96,6 @@ export default function AlertsScreen() {
   }, [alerts, q]);
 
   const onOpen = async (a: ReailAlert) => {
-    // Try backend first, fallback to local
     await markAlertReadApi(a.id);
     const merged = await markAlertRead(a.id);
     setAlerts(merged);
@@ -113,7 +121,7 @@ export default function AlertsScreen() {
   const onShare = async (a: ReailAlert) => {
     const msg = [
       "REAiL Alert",
-      `${badgeEmoji(a.badge)} ${a.badge} • Score: ${a.score}/100`,
+      `${getBadgeLabel(a.badge)} • Score: ${a.score}/100`,
       `Entity: ${a.entityType} • ${a.entityKey}`,
       a.message,
       "",
@@ -123,7 +131,6 @@ export default function AlertsScreen() {
     try {
       await Share.share({ message: msg });
     } catch {
-      // Fallback for web or when share fails
       try {
         await Clipboard.setStringAsync(msg);
         if (Platform.OS === "web") {
@@ -132,18 +139,17 @@ export default function AlertsScreen() {
           Alert.alert("Copied", "Alert copied to clipboard.");
         }
       } catch {
-        // Silent fail
+        console.log("[Share] Failed to copy");
       }
     }
   };
 
   const onWatch = async (a: ReailAlert) => {
-    await addWatch(a.entityType, a.entityKey);
+    await addWatch(a.entityType as "domain" | "vendor" | "creator" | "link", a.entityKey);
     Alert.alert("Watch added", `${a.entityKey} added to your watchlist.`);
   };
 
   const onMarkAllRead = async () => {
-    // Try backend first, fallback to local
     await markAllAlertsReadApi();
     const merged = await markAllRead();
     setAlerts(merged);
@@ -163,41 +169,73 @@ export default function AlertsScreen() {
     ]);
   };
 
+  const onAddWatch = async () => {
+    const trimmed = watchInput.trim();
+    if (!trimmed) return;
+    await addWatch("domain", trimmed);
+    Alert.alert("Added", `${trimmed} added to watchlist.`);
+    setWatchInput("");
+    setWatchModalOpen(false);
+  };
+
   const unreadCount = useMemo(() => alerts.filter((a) => !a.readAt).length, [alerts]);
 
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <Text style={styles.title}>Alerts</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Alerts</Text>
+          {unreadCount > 0 && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.topActions}>
-          <Pressable onPress={onMarkAllRead} style={styles.topBtn}>
-            <Text style={styles.topBtnText}>Mark read</Text>
+          <Pressable 
+            onPress={onMarkAllRead} 
+            style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
+          >
+            <CheckCheck size={16} color={Colors.textSecondary} strokeWidth={2} />
           </Pressable>
-          <Pressable onPress={onClear} style={styles.topBtn}>
-            <Text style={styles.topBtnText}>Clear</Text>
+          <Pressable 
+            onPress={onClear} 
+            style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
+          >
+            <Trash2 size={16} color={Colors.textSecondary} strokeWidth={2} />
           </Pressable>
         </View>
       </View>
 
       <View style={styles.contentPadding}>
-        <View style={styles.rowInfo}>
-          <Text style={styles.infoText}>
-            Unread: <Text style={styles.infoCount}>{unreadCount}</Text>
-          </Text>
-          <Pressable onPress={() => router.push("/watchlist")} style={styles.watchBtn}>
-            <Text style={styles.watchText}>Watchlist</Text>
+        <View style={styles.watchlistRow}>
+          <Pressable 
+            onPress={() => router.push("/watchlist")} 
+            style={({ pressed }) => [styles.watchlistBtn, pressed && styles.watchlistBtnPressed]}
+          >
+            <Eye size={16} color={Colors.primary} strokeWidth={2} />
+            <Text style={styles.watchlistText}>View Watchlist</Text>
+          </Pressable>
+          <Pressable 
+            onPress={() => setWatchModalOpen(true)} 
+            style={({ pressed }) => [styles.addWatchBtn, pressed && styles.addWatchBtnPressed]}
+          >
+            <Plus size={16} color="white" strokeWidth={2.5} />
           </Pressable>
         </View>
 
-        <TextInput
-          value={q}
-          onChangeText={setQ}
-          placeholder="Search alerts…"
-          placeholderTextColor="rgba(255,255,255,0.35)"
-          style={styles.search}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        <View style={styles.searchContainer}>
+          <Search size={18} color={Colors.textTertiary} strokeWidth={2} />
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search alerts..."
+            placeholderTextColor={Colors.textTertiary}
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
       </View>
 
       <FlatList
@@ -206,7 +244,7 @@ export default function AlertsScreen() {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Bell size={48} color="rgba(255,255,255,0.3)" />
+            <Bell size={48} color="rgba(255,255,255,0.2)" strokeWidth={1.5} />
             <Text style={styles.emptyTitle}>No alerts yet</Text>
             <Text style={styles.emptySub}>
               Watch a domain or vendor to get notified when risk changes.
@@ -214,42 +252,104 @@ export default function AlertsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={[styles.card, !item.readAt && styles.cardUnread]}>
-            <Pressable onPress={() => onOpen(item)} style={styles.cardContent}>
-              <Text style={styles.cardTop}>
-                {badgeEmoji(item.badge)}{" "}
-                <Text style={styles.cardEntity}>{item.entityKey}</Text>{" "}
-                <Text style={styles.cardType}>({item.entityType})</Text>
+          <Pressable 
+            onPress={() => onOpen(item)} 
+            style={({ pressed }) => [
+              styles.card, 
+              !item.readAt && styles.cardUnread,
+              pressed && styles.cardPressed
+            ]}
+          >
+            <View style={styles.cardHeader}>
+              <BadgePill badge={item.badge} size="small" />
+              <Text style={styles.cardEntity} numberOfLines={1}>{item.entityKey}</Text>
+              <Text style={styles.cardType}>({item.entityType})</Text>
+            </View>
+            
+            <View style={styles.cardMetaRow}>
+              <Text style={styles.cardScore}>Score: {item.score}/100</Text>
+              <Text style={styles.cardTime}>
+                {new Date(item.createdAt).toLocaleDateString()}
               </Text>
-              <Text style={styles.cardSub}>
-                Score: {item.score}/100 • {new Date(item.createdAt).toLocaleString()}
-              </Text>
-              <Text style={styles.cardMsg} numberOfLines={2}>
-                {item.message}
-              </Text>
+            </View>
+            
+            <Text style={styles.cardMsg} numberOfLines={2}>
+              {item.message}
+            </Text>
 
-              {!!item.topReasons?.length && (
-                <View style={styles.reasonsContainer}>
-                  {item.topReasons.slice(0, 2).map((r, idx) => (
-                    <Text key={idx} style={styles.reasonLine}>
-                      {r.key}) {r.summary}
-                    </Text>
-                  ))}
-                </View>
-              )}
-            </Pressable>
+            {!!item.topReasons?.length && (
+              <View style={styles.reasonsContainer}>
+                {item.topReasons.slice(0, 1).map((r, idx) => (
+                  <Text key={idx} style={styles.reasonLine} numberOfLines={1}>
+                    {r.key}) {r.summary}
+                  </Text>
+                ))}
+              </View>
+            )}
 
             <View style={styles.cardActions}>
-              <Pressable onPress={() => onShare(item)} style={styles.smallBtn}>
-                <Text style={styles.smallBtnText}>Share</Text>
+              <Pressable 
+                onPress={() => onShare(item)} 
+                style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+              >
+                <Share2 size={14} color={Colors.textSecondary} strokeWidth={2} />
+                <Text style={styles.actionBtnText}>Share</Text>
               </Pressable>
-              <Pressable onPress={() => onWatch(item)} style={styles.smallBtn}>
-                <Text style={styles.smallBtnText}>Watch</Text>
+              <Pressable 
+                onPress={() => onWatch(item)} 
+                style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+              >
+                <Eye size={14} color={Colors.textSecondary} strokeWidth={2} />
+                <Text style={styles.actionBtnText}>Watch</Text>
               </Pressable>
             </View>
-          </View>
+          </Pressable>
         )}
       />
+
+      <Modal
+        visible={watchModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWatchModalOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setWatchModalOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add to Watchlist</Text>
+              <Pressable onPress={() => setWatchModalOpen(false)} style={styles.modalCloseIcon}>
+                <X size={20} color={Colors.textSecondary} strokeWidth={2} />
+              </Pressable>
+            </View>
+            <Text style={styles.modalDesc}>
+              Enter a domain or paste a link to watch for risk changes.
+            </Text>
+            <TextInput
+              value={watchInput}
+              onChangeText={setWatchInput}
+              placeholder="e.g. example.com or paste URL"
+              placeholderTextColor={Colors.textTertiary}
+              style={styles.modalInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.modalActions}>
+              <Pressable 
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && styles.modalCancelBtnPressed]} 
+                onPress={() => setWatchModalOpen(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                style={({ pressed }) => [styles.modalConfirmBtn, pressed && styles.modalConfirmBtnPressed]} 
+                onPress={onAddWatch}
+              >
+                <Text style={styles.modalConfirmText}>Add Watch</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -266,66 +366,98 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
+    borderBottomColor: Colors.border,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   title: {
+    color: Colors.text,
+    fontWeight: "800" as const,
+    fontSize: 18,
+  },
+  unreadBadge: {
+    backgroundColor: Colors.highRisk,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  unreadBadgeText: {
     color: "white",
-    fontWeight: "900",
-    fontSize: 16,
+    fontSize: 11,
+    fontWeight: "700" as const,
   },
   topActions: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
   },
   topBtn: {
-    minHeight: 44,
-    paddingHorizontal: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Colors.backgroundSecondary,
   },
-  topBtnText: {
-    color: "white",
-    opacity: 0.85,
-    fontWeight: "800",
+  topBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
   },
   contentPadding: {
     padding: 16,
   },
-  rowInfo: {
+  watchlistRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  watchlistBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  infoText: {
-    color: "white",
-    opacity: 0.8,
-  },
-  infoCount: {
-    fontWeight: "900",
-  },
-  watchBtn: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.03)",
     justifyContent: "center",
-  },
-  watchText: {
-    color: "white",
-    fontWeight: "900",
-    opacity: 0.9,
-  },
-  search: {
-    height: 50,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    color: "white",
+    gap: 8,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: Colors.primary,
+  },
+  watchlistBtnPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  watchlistText: {
+    color: Colors.primary,
+    fontWeight: "700" as const,
+    fontSize: 14,
+  },
+  addWatchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  addWatchBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    height: 50,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    backgroundColor: Colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 14,
   },
   listContent: {
     padding: 16,
@@ -336,83 +468,188 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyTitle: {
-    color: "white",
+    color: Colors.text,
     opacity: 0.7,
-    textAlign: "center",
+    textAlign: "center" as const,
     marginTop: 16,
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "600" as const,
   },
   emptySub: {
-    color: "white",
-    opacity: 0.5,
-    textAlign: "center",
+    color: Colors.textTertiary,
+    textAlign: "center" as const,
     marginTop: 6,
+    fontSize: 13,
+    paddingHorizontal: 20,
   },
   card: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
     padding: 14,
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: Colors.border,
+    backgroundColor: Colors.backgroundSecondary,
     marginBottom: 10,
   },
   cardUnread: {
-    borderColor: "rgba(120,180,255,0.30)",
-    backgroundColor: "rgba(120,180,255,0.08)",
+    borderColor: `${Colors.primary}50`,
+    backgroundColor: `${Colors.primary}08`,
   },
-  cardContent: {
-    flex: 1,
+  cardPressed: {
+    backgroundColor: Colors.backgroundTertiary,
   },
-  cardTop: {
-    color: "white",
-    fontSize: 13,
-    opacity: 0.95,
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
   },
   cardEntity: {
-    fontWeight: "900",
+    flex: 1,
+    color: Colors.text,
+    fontWeight: "700" as const,
+    fontSize: 14,
   },
   cardType: {
-    opacity: 0.7,
-  },
-  cardSub: {
-    color: "white",
-    opacity: 0.65,
-    marginTop: 4,
+    color: Colors.textTertiary,
     fontSize: 12,
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  cardScore: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  cardTime: {
+    color: Colors.textTertiary,
+    fontSize: 11,
   },
   cardMsg: {
-    color: "white",
-    opacity: 0.82,
-    marginTop: 6,
-    fontSize: 12,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   reasonsContainer: {
     marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
   reasonLine: {
-    color: "white",
-    opacity: 0.7,
+    color: Colors.textTertiary,
     fontSize: 12,
-    marginTop: 4,
   },
   cardActions: {
-    gap: 8,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
   },
-  smallBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderRadius: 14,
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.backgroundTertiary,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: Colors.border,
   },
-  smallBtnText: {
+  actionBtnPressed: {
+    backgroundColor: Colors.cardHighlight,
+  },
+  actionBtnText: {
+    color: Colors.textSecondary,
+    fontWeight: "700" as const,
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "700" as const,
+  },
+  modalCloseIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalDesc: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  modalInput: {
+    height: 50,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    color: Colors.text,
+    backgroundColor: Colors.backgroundTertiary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.backgroundTertiary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalCancelBtnPressed: {
+    backgroundColor: Colors.cardHighlight,
+  },
+  modalCancelText: {
+    color: Colors.textSecondary,
+    fontSize: 15,
+    fontWeight: "600" as const,
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  modalConfirmBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  modalConfirmText: {
     color: "white",
-    fontWeight: "900",
-    opacity: 0.9,
+    fontSize: 15,
+    fontWeight: "600" as const,
   },
 });
