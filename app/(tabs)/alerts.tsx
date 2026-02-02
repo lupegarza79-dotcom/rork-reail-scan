@@ -22,6 +22,9 @@ import {
   Trash2,
   X,
   Plus,
+  ShieldAlert,
+  Info,
+  ChevronRight,
 } from "lucide-react-native";
 import {
   ReailAlert,
@@ -39,6 +42,18 @@ import {
 } from "../../utils/api";
 import BadgePill, { getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
+
+function getSeverityColor(badge: string): string {
+  if (badge === "HIGH_RISK") return Colors.highRisk;
+  if (badge === "UNVERIFIED") return Colors.unverified;
+  return Colors.verified;
+}
+
+function getWhyThisMatters(badge: string): string {
+  if (badge === "HIGH_RISK") return "High-risk patterns detected. Exercise extreme caution.";
+  if (badge === "UNVERIFIED") return "Not enough evidence to confirm authenticity.";
+  return "Verified signals detected, but always stay aware.";
+}
 
 export default function AlertsScreen() {
   const router = useRouter();
@@ -87,13 +102,39 @@ export default function AlertsScreen() {
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
-    const list = alerts.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const list = alerts.slice().sort((a, b) => {
+      if (!a.readAt && b.readAt) return -1;
+      if (a.readAt && !b.readAt) return 1;
+      const severityOrder = { HIGH_RISK: 0, UNVERIFIED: 1, VERIFIED: 2 };
+      const aSev = severityOrder[a.badge as keyof typeof severityOrder] ?? 3;
+      const bSev = severityOrder[b.badge as keyof typeof severityOrder] ?? 3;
+      if (aSev !== bSev) return aSev - bSev;
+      return a.createdAt < b.createdAt ? 1 : -1;
+    });
     if (!query) return list;
     return list.filter((a) => {
       const hay = `${a.entityType} ${a.entityKey} ${a.badge} ${a.score} ${a.message}`.toLowerCase();
       return hay.includes(query);
     });
   }, [alerts, q]);
+
+  const groupedAlerts = useMemo(() => {
+    const highRisk = filtered.filter(a => a.badge === "HIGH_RISK");
+    const unverified = filtered.filter(a => a.badge === "UNVERIFIED");
+    const verified = filtered.filter(a => a.badge === "VERIFIED");
+    
+    const groups: { title: string; color: string; data: ReailAlert[] }[] = [];
+    if (highRisk.length > 0) {
+      groups.push({ title: "High Risk", color: Colors.highRisk, data: highRisk });
+    }
+    if (unverified.length > 0) {
+      groups.push({ title: "Unverified", color: Colors.unverified, data: unverified });
+    }
+    if (verified.length > 0) {
+      groups.push({ title: "Verified", color: Colors.verified, data: verified });
+    }
+    return groups;
+  }, [filtered]);
 
   const onOpen = async (a: ReailAlert) => {
     await markAlertReadApi(a.id);
@@ -121,7 +162,7 @@ export default function AlertsScreen() {
   const onShare = async (a: ReailAlert) => {
     const msg = [
       "REAiL Alert",
-      `${getBadgeLabel(a.badge)} • Score: ${a.score}/100`,
+      `${getBadgeLabel(a.badge)} • Risk Score: ${a.score}/100`,
       `Entity: ${a.entityType} • ${a.entityKey}`,
       a.message,
       "",
@@ -180,10 +221,73 @@ export default function AlertsScreen() {
 
   const unreadCount = useMemo(() => alerts.filter((a) => !a.readAt).length, [alerts]);
 
+  const renderAlertCard = (item: ReailAlert) => {
+    const severityColor = getSeverityColor(item.badge);
+    const whyMatters = getWhyThisMatters(item.badge);
+    
+    return (
+      <Pressable 
+        onPress={() => onOpen(item)} 
+        style={({ pressed }) => [
+          styles.card, 
+          !item.readAt && styles.cardUnread,
+          pressed && styles.cardPressed
+        ]}
+      >
+        <View style={[styles.cardSeverityBar, { backgroundColor: severityColor }]} />
+        
+        <View style={styles.cardBody}>
+          <View style={styles.cardHeader}>
+            <BadgePill badge={item.badge} size="small" />
+            <Text style={styles.cardEntity} numberOfLines={1}>{item.entityKey}</Text>
+            <ChevronRight size={16} color={Colors.textTertiary} strokeWidth={2} />
+          </View>
+          
+          <View style={styles.cardMetaRow}>
+            <Text style={[styles.cardScore, { color: severityColor }]}>
+              {item.score}/100
+            </Text>
+            <Text style={styles.cardType}>({item.entityType})</Text>
+            <Text style={styles.cardTime}>
+              {new Date(item.createdAt).toLocaleDateString()}
+            </Text>
+          </View>
+          
+          <Text style={styles.cardMsg} numberOfLines={2}>
+            {item.message}
+          </Text>
+
+          <View style={styles.whyMattersRow}>
+            <Info size={12} color={Colors.textTertiary} strokeWidth={2} />
+            <Text style={styles.whyMattersText}>{whyMatters}</Text>
+          </View>
+
+          <View style={styles.cardActions}>
+            <Pressable 
+              onPress={() => onWatch(item)} 
+              style={({ pressed }) => [styles.actionBtnPrimary, pressed && styles.actionBtnPrimaryPressed]}
+            >
+              <Eye size={14} color="white" strokeWidth={2} />
+              <Text style={styles.actionBtnPrimaryText}>Watch</Text>
+            </Pressable>
+            <Pressable 
+              onPress={() => onShare(item)} 
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+            >
+              <Share2 size={14} color={Colors.textSecondary} strokeWidth={2} />
+              <Text style={styles.actionBtnText}>Share</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
         <View style={styles.titleRow}>
+          <Bell size={20} color={Colors.primary} strokeWidth={2} />
           <Text style={styles.title}>Alerts</Text>
           {unreadCount > 0 && (
             <View style={styles.unreadBadge}>
@@ -239,71 +343,40 @@ export default function AlertsScreen() {
       </View>
 
       <FlatList
-        data={filtered}
-        keyExtractor={(it) => it.id}
+        data={groupedAlerts}
+        keyExtractor={(group) => group.title}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Bell size={48} color="rgba(255,255,255,0.2)" strokeWidth={1.5} />
-            <Text style={styles.emptyTitle}>No alerts yet</Text>
+            <View style={styles.emptyIconWrap}>
+              <ShieldAlert size={48} color={Colors.primary} strokeWidth={1.5} />
+            </View>
+            <Text style={styles.emptyTitle}>No active alerts</Text>
             <Text style={styles.emptySub}>
-              Watch a domain or vendor to get notified when risk changes.
+              Stay aware. Watch a domain or vendor{"\n"}to get notified when risk changes.
             </Text>
+            <Pressable 
+              onPress={() => setWatchModalOpen(true)}
+              style={({ pressed }) => [styles.emptyBtn, pressed && styles.emptyBtnPressed]}
+            >
+              <Plus size={16} color="white" strokeWidth={2.5} />
+              <Text style={styles.emptyBtnText}>Add to Watchlist</Text>
+            </Pressable>
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable 
-            onPress={() => onOpen(item)} 
-            style={({ pressed }) => [
-              styles.card, 
-              !item.readAt && styles.cardUnread,
-              pressed && styles.cardPressed
-            ]}
-          >
-            <View style={styles.cardHeader}>
-              <BadgePill badge={item.badge} size="small" />
-              <Text style={styles.cardEntity} numberOfLines={1}>{item.entityKey}</Text>
-              <Text style={styles.cardType}>({item.entityType})</Text>
+        renderItem={({ item: group }) => (
+          <View style={styles.groupContainer}>
+            <View style={styles.groupHeader}>
+              <View style={[styles.groupIndicator, { backgroundColor: group.color }]} />
+              <Text style={[styles.groupTitle, { color: group.color }]}>{group.title}</Text>
+              <Text style={styles.groupCount}>{group.data.length}</Text>
             </View>
-            
-            <View style={styles.cardMetaRow}>
-              <Text style={styles.cardScore}>Score: {item.score}/100</Text>
-              <Text style={styles.cardTime}>
-                {new Date(item.createdAt).toLocaleDateString()}
-              </Text>
-            </View>
-            
-            <Text style={styles.cardMsg} numberOfLines={2}>
-              {item.message}
-            </Text>
-
-            {!!item.topReasons?.length && (
-              <View style={styles.reasonsContainer}>
-                {item.topReasons.slice(0, 1).map((r, idx) => (
-                  <Text key={idx} style={styles.reasonLine} numberOfLines={1}>
-                    {r.key}) {r.summary}
-                  </Text>
-                ))}
+            {group.data.map((alert) => (
+              <View key={alert.id}>
+                {renderAlertCard(alert)}
               </View>
-            )}
-
-            <View style={styles.cardActions}>
-              <Pressable 
-                onPress={() => onShare(item)} 
-                style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-              >
-                <Share2 size={14} color={Colors.textSecondary} strokeWidth={2} />
-                <Text style={styles.actionBtnText}>Share</Text>
-              </Pressable>
-              <Pressable 
-                onPress={() => onWatch(item)} 
-                style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-              >
-                <Eye size={14} color={Colors.textSecondary} strokeWidth={2} />
-                <Text style={styles.actionBtnText}>Watch</Text>
-              </Pressable>
-            </View>
-          </Pressable>
+            ))}
+          </View>
         )}
       />
 
@@ -463,32 +536,87 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+  groupContainer: {
+    marginBottom: 16,
+  },
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  groupIndicator: {
+    width: 4,
+    height: 16,
+    borderRadius: 2,
+  },
+  groupTitle: {
+    fontSize: 13,
+    fontWeight: "700" as const,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+  },
+  groupCount: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    fontWeight: "600" as const,
+  },
   emptyContainer: {
     paddingTop: 60,
     alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  emptyIconWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: `${Colors.primary}15`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
   },
   emptyTitle: {
     color: Colors.text,
-    opacity: 0.7,
     textAlign: "center" as const,
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: "600" as const,
+    fontSize: 18,
+    fontWeight: "700" as const,
+    marginBottom: 8,
   },
   emptySub: {
     color: Colors.textTertiary,
     textAlign: "center" as const,
-    marginTop: 6,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  emptyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+  },
+  emptyBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  emptyBtnText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700" as const,
   },
   card: {
-    padding: 14,
+    flexDirection: "row",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.backgroundSecondary,
     marginBottom: 10,
+    overflow: "hidden",
+  },
+  cardSeverityBar: {
+    width: 4,
   },
   cardUnread: {
     borderColor: `${Colors.primary}50`,
@@ -496,6 +624,10 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     backgroundColor: Colors.backgroundTertiary,
+  },
+  cardBody: {
+    flex: 1,
+    padding: 14,
   },
   cardHeader: {
     flexDirection: "row",
@@ -509,50 +641,75 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
     fontSize: 14,
   },
-  cardType: {
-    color: Colors.textTertiary,
-    fontSize: 12,
-  },
   cardMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 8,
     marginBottom: 8,
   },
   cardScore: {
-    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "700" as const,
+  },
+  cardType: {
+    color: Colors.textTertiary,
     fontSize: 12,
   },
   cardTime: {
     color: Colors.textTertiary,
     fontSize: 11,
+    marginLeft: "auto",
   },
   cardMsg: {
     color: Colors.textSecondary,
     fontSize: 13,
     lineHeight: 18,
+    marginBottom: 8,
   },
-  reasonsContainer: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+  whyMattersRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    backgroundColor: Colors.backgroundTertiary,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
   },
-  reasonLine: {
+  whyMattersText: {
+    flex: 1,
     color: Colors.textTertiary,
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 16,
   },
   cardActions: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 12,
   },
-  actionBtn: {
+  actionBtnPrimary: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+  },
+  actionBtnPrimaryPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  actionBtnPrimaryText: {
+    color: "white",
+    fontWeight: "700" as const,
+    fontSize: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
     borderRadius: 10,
     backgroundColor: Colors.backgroundTertiary,
     borderWidth: 1,

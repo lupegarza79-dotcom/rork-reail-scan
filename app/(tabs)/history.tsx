@@ -12,14 +12,14 @@ import {
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Trash2, Share2, Clock } from "lucide-react-native";
+import { Search, Trash2, Share2, Clock, History, ChevronRight, RefreshCw } from "lucide-react-native";
 import {
   loadHistory,
   clearHistory,
   type Badge,
   type ScanHistoryItem,
 } from "../../utils/historyStore";
-import BadgePill, { getBadgeLabel } from "@/components/ui/BadgePill";
+import BadgePill, { getBadgeLabel, getBadgeColor } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
 
 function clampScore(n: unknown) {
@@ -99,6 +99,13 @@ export default function HistoryScreen() {
     return groups;
   }, [filtered]);
 
+  const stats = useMemo(() => {
+    const verified = items.filter(i => i.badge === "VERIFIED").length;
+    const unverified = items.filter(i => i.badge === "UNVERIFIED").length;
+    const highRisk = items.filter(i => i.badge === "HIGH_RISK").length;
+    return { verified, unverified, highRisk, total: items.length };
+  }, [items]);
+
   const onOpen = (it: ScanHistoryItem) => {
     const payload = encodeURIComponent(JSON.stringify(it));
     router.push(`/result?payload=${payload}`);
@@ -107,7 +114,7 @@ export default function HistoryScreen() {
   const onShare = async (it: ScanHistoryItem) => {
     const msg = [
       "REAiL Scan Result",
-      `${getBadgeLabel(it.badge)} • Score: ${clampScore(it.score)}/100`,
+      `${getBadgeLabel(it.badge)} • Risk Score: ${clampScore(it.score)}/100`,
       `Domain: ${it.domain}`,
       it.title ? `Title: ${it.title}` : "",
       it.url ? `Link: ${it.url}` : "",
@@ -147,47 +154,54 @@ export default function HistoryScreen() {
     ]);
   };
 
-  const filterOptions: { label: string; value: FilterValue; badge?: Badge }[] = [
-    { label: "All", value: "ALL" },
-    { label: "Verified", value: "VERIFIED", badge: "VERIFIED" },
-    { label: "Unverified", value: "UNVERIFIED", badge: "UNVERIFIED" },
-    { label: "High Risk", value: "HIGH_RISK", badge: "HIGH_RISK" },
+  const filterOptions: { label: string; value: FilterValue; badge?: Badge; count: number }[] = [
+    { label: "All", value: "ALL", count: stats.total },
+    { label: "Verified", value: "VERIFIED", badge: "VERIFIED", count: stats.verified },
+    { label: "Unverified", value: "UNVERIFIED", badge: "UNVERIFIED", count: stats.unverified },
+    { label: "High Risk", value: "HIGH_RISK", badge: "HIGH_RISK", count: stats.highRisk },
   ];
 
-  const renderItem = ({ item }: { item: ScanHistoryItem }) => (
-    <Pressable 
-      onPress={() => onOpen(item)} 
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-    >
-      <View style={styles.cardContent}>
-        <View style={styles.cardTopRow}>
-          <BadgePill badge={item.badge} size="small" />
-          <Text style={styles.cardDomain} numberOfLines={1}>{item.domain}</Text>
-        </View>
-        <View style={styles.cardMetaRow}>
-          <Text style={styles.cardScore}>Score: {clampScore(item.score)}/100</Text>
-          <View style={styles.cardTimestamp}>
-            <Clock size={12} color={Colors.textTertiary} strokeWidth={2} />
-            <Text style={styles.cardTime}>
-              {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-        </View>
-        {!!item.title && (
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.title}
-          </Text>
-        )}
-      </View>
-
+  const renderItem = ({ item }: { item: ScanHistoryItem }) => {
+    const badgeColor = getBadgeColor(item.badge);
+    return (
       <Pressable 
-        onPress={() => onShare(item)} 
-        style={({ pressed }) => [styles.shareBtn, pressed && styles.shareBtnPressed]}
+        onPress={() => onOpen(item)} 
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       >
-        <Share2 size={16} color={Colors.textSecondary} strokeWidth={2} />
+        <View style={[styles.cardAccent, { backgroundColor: badgeColor }]} />
+        <View style={styles.cardContent}>
+          <View style={styles.cardTopRow}>
+            <BadgePill badge={item.badge} size="small" />
+            <Text style={styles.cardDomain} numberOfLines={1}>{item.domain}</Text>
+            <ChevronRight size={16} color={Colors.textTertiary} strokeWidth={2} />
+          </View>
+          <View style={styles.cardMetaRow}>
+            <Text style={[styles.cardScore, { color: badgeColor }]}>
+              {clampScore(item.score)}/100
+            </Text>
+            <View style={styles.cardTimestamp}>
+              <Clock size={12} color={Colors.textTertiary} strokeWidth={2} />
+              <Text style={styles.cardTime}>
+                {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
+          </View>
+          {!!item.title && (
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+          )}
+        </View>
+
+        <Pressable 
+          onPress={() => onShare(item)} 
+          style={({ pressed }) => [styles.shareBtn, pressed && styles.shareBtnPressed]}
+        >
+          <Share2 size={16} color={Colors.textSecondary} strokeWidth={2} />
+        </Pressable>
       </Pressable>
-    </Pressable>
-  );
+    );
+  };
 
   const renderSectionHeader = (title: string) => (
     <View style={styles.sectionHeader}>
@@ -198,13 +212,20 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <Text style={styles.title}>History</Text>
+        <View style={styles.titleRow}>
+          <History size={20} color={Colors.primary} strokeWidth={2} />
+          <Text style={styles.title}>History</Text>
+          {stats.total > 0 && (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{stats.total}</Text>
+            </View>
+          )}
+        </View>
         <Pressable 
           onPress={onClear} 
           style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
         >
           <Trash2 size={18} color={Colors.textSecondary} strokeWidth={2} />
-          <Text style={styles.topBtnText}>Clear</Text>
         </Pressable>
       </View>
 
@@ -214,7 +235,7 @@ export default function HistoryScreen() {
           <TextInput
             value={q}
             onChangeText={setQ}
-            placeholder="Search scans by domain, title, URL..."
+            placeholder="Search by domain, title, URL..."
             placeholderTextColor={Colors.textTertiary}
             style={styles.searchInput}
             autoCapitalize="none"
@@ -223,29 +244,40 @@ export default function HistoryScreen() {
         </View>
 
         <View style={styles.filtersRow}>
-          {filterOptions.map((opt) => (
-            <Pressable
-              key={opt.value}
-              onPress={() => setFilter(opt.value)}
-              style={[
-                styles.filterChip,
-                filter === opt.value && styles.filterChipActive,
-              ]}
-            >
-              {opt.badge ? (
-                <BadgePill badge={opt.badge} size="small" showLabel={false} />
-              ) : null}
-              <Text style={[
-                styles.filterText,
-                filter === opt.value && styles.filterTextActive,
-              ]}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
+          {filterOptions.map((opt) => {
+            const isActive = filter === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => setFilter(opt.value)}
+                style={[
+                  styles.filterChip,
+                  isActive && styles.filterChipActive,
+                  opt.badge && isActive && { borderColor: getBadgeColor(opt.badge) },
+                ]}
+              >
+                {opt.badge ? (
+                  <BadgePill badge={opt.badge} size="small" showLabel={false} />
+                ) : null}
+                <Text style={[
+                  styles.filterText,
+                  isActive && styles.filterTextActive,
+                  opt.badge && isActive && { color: getBadgeColor(opt.badge) },
+                ]}>
+                  {opt.label}
+                </Text>
+                {opt.count > 0 && (
+                  <Text style={[
+                    styles.filterCount,
+                    isActive && styles.filterCountActive,
+                  ]}>
+                    {opt.count}
+                  </Text>
+                )}
+              </Pressable>
+            );
+          })}
         </View>
-
-        <Text style={styles.hintText}>Tap item to open full report</Text>
       </View>
 
       <FlatList
@@ -254,12 +286,26 @@ export default function HistoryScreen() {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Clock size={48} color="rgba(255,255,255,0.2)" strokeWidth={1.5} />
+            <View style={styles.emptyIconWrap}>
+              <RefreshCw size={48} color={Colors.primary} strokeWidth={1.5} />
+            </View>
             <Text style={styles.emptyTitle}>No scans yet</Text>
             <Text style={styles.emptySub}>
-              Scan a link to build your history.
+              Try your first link to build your history.{"\n"}
+              Your scan results will appear here.
             </Text>
+            <Pressable 
+              onPress={() => router.push("/")}
+              style={({ pressed }) => [styles.emptyBtn, pressed && styles.emptyBtnPressed]}
+            >
+              <Text style={styles.emptyBtnText}>Scan a Link</Text>
+            </Pressable>
           </View>
+        }
+        ListHeaderComponent={
+          filtered.length > 0 ? (
+            <Text style={styles.hintText}>Tap any item to view full report</Text>
+          ) : null
         }
         renderItem={({ item: group }) => (
           <View>
@@ -290,27 +336,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   title: {
     color: Colors.text,
     fontWeight: "800" as const,
     fontSize: 18,
   },
-  topBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  countBadge: {
+    backgroundColor: Colors.backgroundTertiary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: 10,
+  },
+  countBadgeText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "700" as const,
+  },
+  topBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: Colors.backgroundSecondary,
   },
   topBtnPressed: {
     backgroundColor: Colors.backgroundTertiary,
-  },
-  topBtnText: {
-    color: Colors.textSecondary,
-    fontWeight: "700" as const,
-    fontSize: 13,
   },
   contentPadding: {
     padding: 16,
@@ -342,28 +398,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     height: 36,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.backgroundSecondary,
   },
   filterChipActive: {
-    backgroundColor: `${Colors.primary}20`,
+    backgroundColor: `${Colors.primary}15`,
     borderColor: Colors.primary,
   },
   filterText: {
     color: Colors.textSecondary,
-    fontWeight: "700" as const,
+    fontWeight: "600" as const,
     fontSize: 12,
   },
   filterTextActive: {
     color: Colors.primary,
   },
+  filterCount: {
+    color: Colors.textTertiary,
+    fontSize: 10,
+    fontWeight: "600" as const,
+  },
+  filterCountActive: {
+    color: Colors.primary,
+  },
   hintText: {
     color: Colors.textTertiary,
     fontSize: 11,
-    marginTop: 12,
+    marginBottom: 8,
     textAlign: "center" as const,
   },
   listContent: {
@@ -384,19 +448,23 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 14,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.backgroundSecondary,
     marginBottom: 10,
-    gap: 12,
+    overflow: "hidden",
+  },
+  cardAccent: {
+    width: 4,
+    alignSelf: "stretch",
   },
   cardPressed: {
     backgroundColor: Colors.backgroundTertiary,
   },
   cardContent: {
     flex: 1,
+    padding: 14,
   },
   cardTopRow: {
     flexDirection: "row",
@@ -416,8 +484,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardScore: {
-    color: Colors.textSecondary,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: "700" as const,
   },
   cardTimestamp: {
     flexDirection: "row",
@@ -434,14 +502,13 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   shareBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Colors.backgroundTertiary,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginRight: 10,
   },
   shareBtnPressed: {
     backgroundColor: Colors.cardHighlight,
@@ -449,19 +516,43 @@ const styles = StyleSheet.create({
   emptyContainer: {
     paddingTop: 60,
     alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  emptyIconWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: `${Colors.primary}15`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
   },
   emptyTitle: {
     color: Colors.text,
-    opacity: 0.7,
     textAlign: "center" as const,
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: "600" as const,
+    fontSize: 18,
+    fontWeight: "700" as const,
+    marginBottom: 8,
   },
   emptySub: {
     color: Colors.textTertiary,
     textAlign: "center" as const,
-    marginTop: 6,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  emptyBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+  },
+  emptyBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  emptyBtnText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700" as const,
   },
 });

@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,16 +9,35 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import { Settings, Shield, Clipboard as ClipboardIcon } from "lucide-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Settings, Shield, Clipboard as ClipboardIcon, Info, X } from "lucide-react-native";
 import Colors from "@/constants/colors";
+
+const FIRST_SCAN_KEY = "reail_first_scan_shown";
 
 export default function ScanHomeScreen() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [showFirstScanTip, setShowFirstScanTip] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const shown = await AsyncStorage.getItem(FIRST_SCAN_KEY);
+      if (!shown) {
+        setShowFirstScanTip(true);
+      }
+    })();
+  }, []);
+
+  const dismissFirstScanTip = async () => {
+    setShowFirstScanTip(false);
+    await AsyncStorage.setItem(FIRST_SCAN_KEY, "true");
+  };
 
   const cleanUrl = useMemo(() => input.trim(), [input]);
 
@@ -137,7 +156,69 @@ export default function ScanHomeScreen() {
           <Text style={styles.moreLinkText}>More options</Text>
           <Text style={styles.moreLinkArrow}>→</Text>
         </Pressable>
+
+        <View style={styles.disclaimerRow}>
+          <Info size={12} color={Colors.textTertiary} strokeWidth={2} />
+          <Text style={styles.disclaimerText}>
+            REAiL does not tell you what to believe—it shows signals and patterns.
+          </Text>
+        </View>
       </View>
+
+      <Modal
+        visible={showFirstScanTip}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissFirstScanTip}
+      >
+        <Pressable style={styles.modalOverlay} onPress={dismissFirstScanTip}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconWrap}>
+                <Shield size={24} color={Colors.primary} strokeWidth={2} />
+              </View>
+              <Text style={styles.modalTitle}>Welcome to REAiL</Text>
+              <Pressable onPress={dismissFirstScanTip} style={styles.modalCloseIcon}>
+                <X size={20} color={Colors.textSecondary} strokeWidth={2} />
+              </Pressable>
+            </View>
+            
+            <View style={styles.tipsList}>
+              <View style={styles.tipRow}>
+                <View style={styles.tipBullet}>
+                  <Text style={styles.tipBulletText}>1</Text>
+                </View>
+                <Text style={styles.tipText}>
+                  REAiL analyzes public signals—it does not access private data.
+                </Text>
+              </View>
+              <View style={styles.tipRow}>
+                <View style={styles.tipBullet}>
+                  <Text style={styles.tipBulletText}>2</Text>
+                </View>
+                <Text style={styles.tipText}>
+                  Results are risk-based, not absolute truth. Always use context.
+                </Text>
+              </View>
+              <View style={styles.tipRow}>
+                <View style={styles.tipBullet}>
+                  <Text style={styles.tipBulletText}>3</Text>
+                </View>
+                <Text style={styles.tipText}>
+                  Lack of evidence ≠ scam. Verified ≠ endorsement.
+                </Text>
+              </View>
+            </View>
+
+            <Pressable 
+              style={({ pressed }) => [styles.modalBtn, pressed && styles.modalBtnPressed]} 
+              onPress={dismissFirstScanTip}
+            >
+              <Text style={styles.modalBtnText}>Got it, scan now</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -320,5 +401,102 @@ const styles = StyleSheet.create({
   moreLinkArrow: {
     color: Colors.primary,
     fontSize: 16,
+  },
+  disclaimerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  disclaimerText: {
+    flex: 1,
+    color: Colors.textTertiary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 20,
+  },
+  modalIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: `${Colors.primary}20`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalTitle: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "700" as const,
+  },
+  modalCloseIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.backgroundTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tipsList: {
+    gap: 14,
+    marginBottom: 20,
+  },
+  tipRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  tipBullet: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tipBulletText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700" as const,
+  },
+  tipText: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalBtn: {
+    height: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  modalBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  modalBtnText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700" as const,
   },
 });

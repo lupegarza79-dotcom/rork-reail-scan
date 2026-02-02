@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { ShieldCheck, ShieldAlert, ShieldX } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 
@@ -7,9 +7,11 @@ export type BadgeType = 'VERIFIED' | 'UNVERIFIED' | 'HIGH_RISK';
 
 interface BadgePillProps {
   badge: BadgeType;
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'hero';
   showIcon?: boolean;
   showLabel?: boolean;
+  showSubtitle?: boolean;
+  animated?: boolean;
 }
 
 const badgeConfig = {
@@ -17,18 +19,21 @@ const badgeConfig = {
     color: Colors.verified,
     bg: Colors.verifiedBg,
     label: 'VERIFIED',
+    subtitle: 'Verified by evidence, not by popularity',
     Icon: ShieldCheck,
   },
   UNVERIFIED: {
     color: Colors.unverified,
     bg: Colors.unverifiedBg,
     label: 'UNVERIFIED',
+    subtitle: 'Not enough evidence to confirm authenticity',
     Icon: ShieldAlert,
   },
   HIGH_RISK: {
     color: Colors.highRisk,
     bg: Colors.highRiskBg,
     label: 'HIGH RISK',
+    subtitle: 'High-risk signals detected',
     Icon: ShieldX,
   },
 };
@@ -37,10 +42,12 @@ export default function BadgePill({
   badge, 
   size = 'medium', 
   showIcon = true,
-  showLabel = true 
+  showLabel = true,
+  showSubtitle = false,
+  animated = false,
 }: BadgePillProps) {
   const config = badgeConfig[badge] || badgeConfig.UNVERIFIED;
-  const { color, bg, label, Icon } = config;
+  const { color, bg, label, subtitle, Icon } = config;
 
   const sizeStyles = {
     small: {
@@ -67,38 +74,67 @@ export default function BadgePill({
       borderRadius: 10,
       gap: 6,
     },
+    hero: {
+      paddingH: 20,
+      paddingV: 12,
+      iconSize: 24,
+      fontSize: 16,
+      borderRadius: 14,
+      gap: 8,
+    },
   };
 
   const s = sizeStyles[size];
 
-  return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: bg,
-          borderColor: `${color}40`,
-          paddingHorizontal: s.paddingH,
-          paddingVertical: s.paddingV,
-          borderRadius: s.borderRadius,
-          gap: s.gap,
-        },
-      ]}
-    >
+  const containerStyle = [
+    styles.container,
+    {
+      backgroundColor: bg,
+      borderColor: `${color}50`,
+      paddingHorizontal: s.paddingH,
+      paddingVertical: s.paddingV,
+      borderRadius: s.borderRadius,
+      gap: s.gap,
+    },
+  ];
+
+  const content = (
+    <>
       {showIcon && <Icon size={s.iconSize} color={color} strokeWidth={2.5} />}
-      {showLabel && (
-        <Text
-          style={[
-            styles.label,
-            {
-              color,
-              fontSize: s.fontSize,
-            },
-          ]}
-        >
-          {label}
-        </Text>
-      )}
+      <View style={showSubtitle ? styles.textContainer : undefined}>
+        {showLabel && (
+          <Text
+            style={[
+              styles.label,
+              {
+                color,
+                fontSize: s.fontSize,
+              },
+            ]}
+          >
+            {label}
+          </Text>
+        )}
+        {showSubtitle && (
+          <Text style={[styles.subtitle, { color: `${color}CC` }]} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        )}
+      </View>
+    </>
+  );
+
+  if (animated) {
+    return (
+      <Animated.View style={containerStyle}>
+        {content}
+      </Animated.View>
+    );
+  }
+
+  return (
+    <View style={containerStyle}>
+      {content}
     </View>
   );
 }
@@ -115,14 +151,26 @@ export function getBadgeLabel(badge: BadgeType): string {
   return badgeConfig[badge]?.label || 'UNVERIFIED';
 }
 
+export function getBadgeSubtitle(badge: BadgeType): string {
+  return badgeConfig[badge]?.subtitle || 'Not enough evidence to confirm authenticity';
+}
+
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
+  },
+  textContainer: {
+    flexDirection: 'column',
   },
   label: {
-    fontWeight: '700' as const,
+    fontWeight: '800' as const,
     letterSpacing: 0.5,
+  },
+  subtitle: {
+    fontSize: 10,
+    fontWeight: '500' as const,
+    marginTop: 2,
   },
 });

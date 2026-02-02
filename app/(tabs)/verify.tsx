@@ -23,6 +23,9 @@ import {
   Star,
   TrendingUp,
   Info,
+  FileCheck,
+  Lock,
+  Zap,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
@@ -86,19 +89,24 @@ export default function VerifyScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>{t.verify}</Text>
+            <View style={styles.headerRow}>
+              <BadgeCheck size={22} color={Colors.primary} strokeWidth={2} />
+              <Text style={styles.headerTitle}>{t.verify}</Text>
+            </View>
           </View>
 
           <View style={styles.content}>
             <View style={styles.logoSection}>
               <View style={styles.iconBadge}>
-                <BadgeCheck size={48} color={Colors.accent} />
+                <Shield size={48} color={Colors.accent} strokeWidth={1.5} />
               </View>
               <Logo size="large" showSubtext />
             </View>
 
-            <Text style={styles.title}>{t.getVerified}</Text>
-            <Text style={styles.subtitle}>{t.verifySubtitle}</Text>
+            <Text style={styles.title}>Verification is earned, not claimed</Text>
+            <Text style={styles.subtitle}>
+              Build trust through evidence, not just badges
+            </Text>
 
             <Pressable 
               onPress={() => setWhatIsModalOpen(true)}
@@ -113,12 +121,12 @@ export default function VerifyScreen() {
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
                 onPress={() => setBusinessModalOpen(true)}
               >
-                <View style={styles.cardIcon}>
+                <View style={[styles.cardIcon, { backgroundColor: `${Colors.verified}15` }]}>
                   <Building2 size={24} color={Colors.verified} />
                 </View>
                 <View style={styles.cardContent}>
                   <Text style={styles.cardTitle}>Verified Business</Text>
-                  <Text style={styles.cardDescription}>Build trust with your customers</Text>
+                  <Text style={styles.cardDescription}>Prove legitimacy through documentation</Text>
                 </View>
                 <ArrowRight size={20} color={Colors.textTertiary} />
               </Pressable>
@@ -127,23 +135,64 @@ export default function VerifyScreen() {
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
                 onPress={() => setCreatorModalOpen(true)}
               >
-                <View style={styles.cardIcon}>
+                <View style={[styles.cardIcon, { backgroundColor: `${Colors.accent}15` }]}>
                   <User size={24} color={Colors.accent} />
                 </View>
                 <View style={styles.cardContent}>
                   <Text style={styles.cardTitle}>Verified Creator</Text>
-                  <Text style={styles.cardDescription}>Stand out as authentic</Text>
+                  <Text style={styles.cardDescription}>Establish authenticity for your audience</Text>
                 </View>
                 <ArrowRight size={20} color={Colors.textTertiary} />
               </Pressable>
             </View>
 
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>{t.comingSoon}</Text>
+            <View style={styles.evidenceBadge}>
+              <FileCheck size={14} color={Colors.accent} strokeWidth={2} />
+              <Text style={styles.evidenceBadgeText}>Verification requires evidence</Text>
             </View>
 
-            <Text style={styles.description}>
-              Get your business or creator profile verified by REAiL to build trust with your audience. Verified accounts receive a special badge that appears in scan results.
+            <View style={styles.principlesSection}>
+              <Text style={styles.principlesTitle}>Our Principles</Text>
+              
+              <View style={styles.principleRow}>
+                <View style={styles.principleIcon}>
+                  <Lock size={16} color={Colors.verified} strokeWidth={2} />
+                </View>
+                <View style={styles.principleContent}>
+                  <Text style={styles.principleLabel}>Evidence-Based</Text>
+                  <Text style={styles.principleDesc}>
+                    Verification requires documentation, not just claims
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.principleRow}>
+                <View style={styles.principleIcon}>
+                  <Shield size={16} color={Colors.verified} strokeWidth={2} />
+                </View>
+                <View style={styles.principleContent}>
+                  <Text style={styles.principleLabel}>Trust, Not Endorsement</Text>
+                  <Text style={styles.principleDesc}>
+                    Verified ≠ we endorse. It confirms identity only.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.principleRow}>
+                <View style={styles.principleIcon}>
+                  <Zap size={16} color={Colors.verified} strokeWidth={2} />
+                </View>
+                <View style={styles.principleContent}>
+                  <Text style={styles.principleLabel}>Continuous Monitoring</Text>
+                  <Text style={styles.principleDesc}>
+                    Verification can be revoked if evidence changes
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.footerText}>
+              Get verified to build trust with your audience. Verified accounts receive a special badge in scan results—but verification is earned through evidence, not purchased.
             </Text>
           </View>
         </ScrollView>
@@ -175,6 +224,15 @@ export default function VerifyScreen() {
                   <Text style={styles.benefitText}>{benefit}</Text>
                 </View>
               ))}
+            </View>
+
+            <View style={styles.requirementBox}>
+              <Text style={styles.requirementTitle}>Requirements</Text>
+              <Text style={styles.requirementText}>
+                • Business registration documents{"\n"}
+                • Domain ownership verification{"\n"}
+                • Contact information validation
+              </Text>
             </View>
 
             <Text style={styles.inputLabel}>Join the waitlist</Text>
@@ -234,6 +292,15 @@ export default function VerifyScreen() {
               ))}
             </View>
 
+            <View style={styles.requirementBox}>
+              <Text style={styles.requirementTitle}>Requirements</Text>
+              <Text style={styles.requirementText}>
+                • Verified social media presence{"\n"}
+                • Consistent content history{"\n"}
+                • Identity verification
+              </Text>
+            </View>
+
             <Text style={styles.inputLabel}>Join the waitlist</Text>
             <TextInput
               value={email}
@@ -288,7 +355,7 @@ export default function VerifyScreen() {
                 <View style={styles.whatIsTextWrap}>
                   <Text style={styles.whatIsLabel}>Identity Verified</Text>
                   <Text style={styles.whatIsDesc}>
-                    We verify that you are who you claim to be through documentation and business records.
+                    We verify that you are who you claim to be through documentation and records.
                   </Text>
                 </View>
               </View>
@@ -306,17 +373,18 @@ export default function VerifyScreen() {
               <View style={styles.whatIsRow}>
                 <TrendingUp size={18} color={Colors.verified} strokeWidth={2} />
                 <View style={styles.whatIsTextWrap}>
-                  <Text style={styles.whatIsLabel}>Higher Trust Score</Text>
+                  <Text style={styles.whatIsLabel}>Higher Risk Score</Text>
                   <Text style={styles.whatIsDesc}>
-                    Verified accounts receive a trust score boost in our verification engine.
+                    Verified accounts receive a score boost in our verification engine.
                   </Text>
                 </View>
               </View>
             </View>
 
             <View style={styles.whatIsDisclaimer}>
+              <Text style={styles.whatIsDisclaimerTitle}>Important</Text>
               <Text style={styles.whatIsDisclaimerText}>
-                Verification does not guarantee behavior or content quality. It confirms identity only.
+                Verification confirms identity only. It does not guarantee behavior, content quality, or endorsement by REAiL. Lack of verification ≠ scam.
               </Text>
             </View>
 
@@ -344,10 +412,17 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: '700' as const,
+    fontSize: 18,
+    fontWeight: '800' as const,
     color: Colors.text,
   },
   content: {
@@ -357,14 +432,16 @@ const styles = StyleSheet.create({
   },
   logoSection: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 24,
     marginBottom: 24,
   },
   iconBadge: {
     marginBottom: 16,
-    padding: 16,
-    borderRadius: 24,
-    backgroundColor: 'rgba(6, 182, 212, 0.15)',
+    padding: 20,
+    borderRadius: 30,
+    backgroundColor: `${Colors.accent}15`,
+    borderWidth: 1,
+    borderColor: `${Colors.accent}30`,
   },
   title: {
     fontSize: 22,
@@ -376,7 +453,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: Colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 20,
     textAlign: 'center',
   },
   whatIsBtn: {
@@ -402,7 +479,7 @@ const styles = StyleSheet.create({
   cardsContainer: {
     width: '100%',
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   card: {
     flexDirection: 'row',
@@ -420,7 +497,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: Colors.backgroundTertiary,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -438,25 +514,71 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
   },
-  comingSoonBadge: {
-    backgroundColor: Colors.accentSecondary,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+  evidenceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: `${Colors.accent}15`,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
     marginBottom: 24,
   },
-  comingSoonText: {
+  evidenceBadgeText: {
     fontSize: 12,
+    fontWeight: '600' as const,
+    color: Colors.accent,
+  },
+  principlesSection: {
+    width: '100%',
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 24,
+  },
+  principlesTitle: {
+    fontSize: 14,
     fontWeight: '700' as const,
     color: Colors.text,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    marginBottom: 14,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
   },
-  description: {
+  principleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
+  },
+  principleIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: `${Colors.verified}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  principleContent: {
+    flex: 1,
+  },
+  principleLabel: {
     fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  principleDesc: {
+    fontSize: 12,
     color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  footerText: {
+    fontSize: 13,
+    color: Colors.textTertiary,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
     paddingHorizontal: 10,
     paddingBottom: 40,
   },
@@ -509,7 +631,7 @@ const styles = StyleSheet.create({
   },
   benefitsList: {
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   benefitRow: {
     flexDirection: 'row',
@@ -520,6 +642,25 @@ const styles = StyleSheet.create({
     flex: 1,
     color: Colors.textSecondary,
     fontSize: 14,
+    lineHeight: 20,
+  },
+  requirementBox: {
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  requirementTitle: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  requirementText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
     lineHeight: 20,
   },
   inputLabel: {
@@ -589,15 +730,24 @@ const styles = StyleSheet.create({
   },
   whatIsDisclaimer: {
     backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: `${Colors.unverified}30`,
+  },
+  whatIsDisclaimerTitle: {
+    color: Colors.unverified,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    marginBottom: 6,
   },
   whatIsDisclaimerText: {
-    color: Colors.textTertiary,
+    color: Colors.textSecondary,
     fontSize: 12,
     lineHeight: 18,
-    textAlign: 'center',
   },
   gotItBtn: {
     height: 48,

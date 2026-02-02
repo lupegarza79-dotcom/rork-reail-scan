@@ -9,6 +9,7 @@ import {
   Platform,
   StyleSheet,
   Alert,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -42,7 +43,14 @@ import {
   Link2,
   Users,
   Fingerprint,
-  AlertOctagon,
+  Compass,
+  Copy,
+  Video,
+  RefreshCw,
+  MessageSquare,
+  UserCheck,
+  LinkIcon,
+  Zap,
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanResultById } from "../utils/api";
@@ -113,6 +121,15 @@ const PLACEHOLDER_EVIDENCE: EvidenceCard[] = [
   { id: 'pattern-match', provider: 'Pattern Match', status: 'pending', summary: 'Known scam and fraud pattern detection' },
 ];
 
+const REASON_ICONS: Record<ReasonKey, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
+  A: Video,
+  B: Copy,
+  C: MessageSquare,
+  D: UserCheck,
+  E: LinkIcon,
+  F: Zap,
+};
+
 function safeJsonParse<T>(value: string | undefined): T | null {
   if (!value) return null;
   try {
@@ -165,10 +182,14 @@ export default function ResultScreen() {
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [safeViewOpen, setSafeViewOpen] = useState(false);
   const [whyScoreOpen, setWhyScoreOpen] = useState(false);
+  const [scoreTooltipOpen, setScoreTooltipOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<ReasonKey, boolean>>({
     A: false, B: false, C: false, D: false, E: false, F: false,
   });
   const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({});
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
   const shareCardRef = useRef<View>(null);
   const [cached, setCached] = useState<ScanResult | null>(null);
@@ -180,6 +201,22 @@ export default function ResultScreen() {
     const decoded = payload ? decodeURIComponent(String(payload)) : "";
     return safeJsonParse<ScanResult>(decoded);
   }, [payload]);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, scaleAnim]);
 
   useEffect(() => {
     let active = true;
@@ -257,23 +294,64 @@ export default function ResultScreen() {
     };
   }, [result.reasons]);
 
-  const topReasons = useMemo(() => {
+  const sortedReasonKeys = useMemo(() => {
     const keys: ReasonKey[] = ["A", "B", "C", "D", "E", "F"];
-    return keys
-      .filter(k => reasonsMerged[k]?.details?.length || reasonsMerged[k]?.summary)
-      .slice(0, 3)
-      .map(k => ({ key: k, ...reasonsMerged[k] }));
+    return keys.sort((a, b) => {
+      const aHasDetails = (reasonsMerged[a]?.details?.length ?? 0) > 0;
+      const bHasDetails = (reasonsMerged[b]?.details?.length ?? 0) > 0;
+      if (aHasDetails && !bHasDetails) return -1;
+      if (!aHasDetails && bHasDetails) return 1;
+      return 0;
+    });
   }, [reasonsMerged]);
+
+  const topReasons = useMemo(() => {
+    return sortedReasonKeys
+      .filter(k => reasonsMerged[k]?.details?.length || reasonsMerged[k]?.summary)
+      .slice(0, 5)
+      .map(k => ({ key: k, ...reasonsMerged[k] }));
+  }, [reasonsMerged, sortedReasonKeys]);
 
   const evidenceCards = result.evidence?.length ? result.evidence : PLACEHOLDER_EVIDENCE;
   const hasRealEvidence = !!result.evidence?.length;
 
   const shareCardFooter = "Risk-based verification • Not absolute truth";
 
+  const badgeColor = getBadgeColor(badge);
+  const badgeBg = getBadgeBg(badge);
+
+  const nbaContent = useMemo(() => {
+    if (badge === "VERIFIED") {
+      return {
+        title: "Next Best Action",
+        message: "Proceed, but stay aware",
+        tips: ["Verify the creator or account independently", "Check recent activity and reviews", "Trust but verify with context"],
+        cta1: "Open in Safe View",
+        cta2: "Add to Watchlist",
+      };
+    }
+    if (badge === "UNVERIFIED") {
+      return {
+        title: "Next Best Action",
+        message: "Do not rely on this alone",
+        tips: ["Cross-check with other sources", "Review account history and comments", "Look for official verification marks"],
+        cta1: "Open in Safe View",
+        cta2: "Add to Watchlist",
+      };
+    }
+    return {
+      title: "Next Best Action",
+      message: "Do not proceed",
+      tips: ["Do not pay or share personal info", "Report suspicious activity", "Consider blocking or avoiding this source"],
+      cta1: "Open in Safe View",
+      cta2: "Add to Watchlist",
+    };
+  }, [badge]);
+
   const onShareText = async () => {
     const lines: string[] = [];
     lines.push("REAiL Scan Result");
-    lines.push(`${getBadgeLabel(badge)} • Score: ${score}/100`);
+    lines.push(`${getBadgeLabel(badge)} • Risk Score: ${score}/100`);
     lines.push(`Domain: ${domain}`);
     const scanIdToShare = result?.scanId || (result as Record<string, unknown>)?.id;
     if (scanIdToShare) {
@@ -379,37 +457,6 @@ export default function ResultScreen() {
     }
   };
 
-  const badgeColor = getBadgeColor(badge);
-  const badgeBg = getBadgeBg(badge);
-
-  const nbaContent = useMemo(() => {
-    if (badge === "VERIFIED") {
-      return {
-        title: "Next Best Action",
-        message: "Proceed with caution",
-        tips: ["Verify the creator or account independently", "Check recent activity and reviews"],
-        cta1: "Open in Safe View",
-        cta2: "Add to Watchlist",
-      };
-    }
-    if (badge === "UNVERIFIED") {
-      return {
-        title: "Next Best Action",
-        message: "Do not rely on this alone",
-        tips: ["Cross-check with other sources", "Review account history and comments", "Look for official verification"],
-        cta1: "Open in Safe View",
-        cta2: "Add to Watchlist",
-      };
-    }
-    return {
-      title: "Next Best Action",
-      message: "Exercise extreme caution",
-      tips: ["Do not pay or share personal info", "Report suspicious activity", "Consider blocking or avoiding"],
-      cta1: "Open in Safe View",
-      cta2: "Add to Watchlist",
-    };
-  }, [badge]);
-
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -434,20 +481,34 @@ export default function ResultScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.mainCard}>
+        <Animated.View 
+          style={[
+            styles.mainCard,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+        >
           <View style={styles.badgeSection}>
-            <View style={[styles.badgeIconContainer, { backgroundColor: badgeBg }]}>
-              <BadgeIcon badge={badge} size={32} />
+            <View style={[styles.badgeIconContainer, { backgroundColor: badgeBg, borderColor: `${badgeColor}40` }]}>
+              <BadgeIcon badge={badge} size={40} />
             </View>
-            <BadgePill badge={badge} size="large" />
+            <BadgePill badge={badge} size="hero" showSubtitle />
             <Text style={styles.domainText}>{domain}</Text>
           </View>
 
           <View style={styles.scoreSection}>
-            <View style={styles.scoreCircle}>
+            <Pressable 
+              onPress={() => setScoreTooltipOpen(true)}
+              style={styles.scoreCircle}
+            >
               <Text style={[styles.scoreValue, { color: badgeColor }]}>{score}</Text>
-              <Text style={styles.scoreLabel}>Trust Score</Text>
-            </View>
+              <Text style={styles.scoreLabel}>Risk Score</Text>
+              <View style={styles.scoreTooltipIcon}>
+                <Info size={10} color={Colors.textTertiary} strokeWidth={2} />
+              </View>
+            </Pressable>
             <View style={styles.scoreBarContainer}>
               <View style={styles.scoreBarTrack}>
                 <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: badgeColor }]} />
@@ -475,12 +536,23 @@ export default function ResultScreen() {
           {whyScoreOpen && (
             <View style={styles.whyScoreContent}>
               {topReasons.length > 0 ? (
-                topReasons.map((r, idx) => (
-                  <Text key={idx} style={styles.whyScoreBullet}>• {r.title}: {r.summary}</Text>
-                ))
+                topReasons.map((r, idx) => {
+                  const IconComponent = REASON_ICONS[r.key as ReasonKey];
+                  return (
+                    <View key={idx} style={styles.whyScoreRow}>
+                      <View style={styles.whyScoreIconWrap}>
+                        <IconComponent size={14} color={Colors.accent} strokeWidth={2} />
+                      </View>
+                      <View style={styles.whyScoreTextWrap}>
+                        <Text style={styles.whyScoreTitle}>{r.title}</Text>
+                        <Text style={styles.whyScoreSummary}>{r.summary}</Text>
+                      </View>
+                    </View>
+                  );
+                })
               ) : (
                 <Text style={styles.whyScoreBullet}>
-                  Not enough evidence to confirm authenticity. Use context and cross-check.
+                  Not enough evidence to confirm authenticity. Use context and cross-check with other sources.
                 </Text>
               )}
             </View>
@@ -502,14 +574,16 @@ export default function ResultScreen() {
               <Info size={16} color={Colors.textTertiary} strokeWidth={2} />
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
 
-        <View style={styles.nbaSection}>
+        <View style={[styles.nbaSection, { borderColor: `${badgeColor}30` }]}>
           <View style={styles.nbaTitleRow}>
-            <AlertOctagon size={18} color={Colors.accent} strokeWidth={2} />
+            <View style={[styles.nbaIconWrap, { backgroundColor: `${badgeColor}20` }]}>
+              <Compass size={18} color={badgeColor} strokeWidth={2} />
+            </View>
             <Text style={styles.nbaTitle}>{nbaContent.title}</Text>
           </View>
-          <Text style={styles.nbaMessage}>{nbaContent.message}</Text>
+          <Text style={[styles.nbaMessage, { color: badgeColor }]}>{nbaContent.message}</Text>
           <View style={styles.nbaTips}>
             {nbaContent.tips.map((tip, idx) => (
               <Text key={idx} style={styles.nbaTip}>• {tip}</Text>
@@ -554,9 +628,15 @@ export default function ResultScreen() {
         </View>
 
         <View style={styles.evidenceSection}>
-          <Text style={styles.sectionTitle}>Evidence Pack</Text>
+          <View style={styles.evidenceTitleRow}>
+            <Text style={styles.sectionTitle}>Evidence Pack</Text>
+            <View style={styles.evidenceHint}>
+              <Info size={12} color={Colors.textTertiary} strokeWidth={2} />
+              <Text style={styles.evidenceHintText}>Unlocks verified status</Text>
+            </View>
+          </View>
           <Text style={styles.sectionSubtitle}>
-            {hasRealEvidence ? "Verification sources and signals" : "Evidence pack not available yet"}
+            {hasRealEvidence ? "Verification sources and signals" : "Verification requires evidence, not claims"}
           </Text>
 
           {result.summary && (
@@ -624,7 +704,7 @@ export default function ResultScreen() {
         {result.metrics && (
           <View style={styles.metricsSection}>
             <Text style={styles.sectionTitle}>Signals</Text>
-            <Text style={styles.sectionSubtitle}>AI vs Human detection metrics</Text>
+            <Text style={styles.sectionSubtitle}>Content patterns and risk indicators</Text>
             
             <View style={styles.metricsGrid}>
               <View style={styles.metricCard}>
@@ -692,21 +772,24 @@ export default function ResultScreen() {
           <Text style={styles.sectionTitle}>Analysis Details</Text>
           <Text style={styles.sectionSubtitle}>Tap to expand each category</Text>
 
-          {(Object.keys(reasonsMerged) as ReasonKey[]).map((k) => {
+          {sortedReasonKeys.map((k) => {
             const item = reasonsMerged[k];
             const isOpen = expanded[k];
+            const hasDetails = (item.details?.length ?? 0) > 0;
+            const IconComponent = REASON_ICONS[k];
             return (
               <Pressable 
                 key={k} 
                 onPress={() => toggleExpand(k)} 
                 style={({ pressed }) => [
                   styles.reasonCard,
+                  hasDetails && styles.reasonCardHighlighted,
                   pressed && styles.reasonCardPressed
                 ]}
               >
                 <View style={styles.reasonHeader}>
-                  <View style={styles.reasonKeyBadge}>
-                    <Text style={styles.reasonKey}>{k}</Text>
+                  <View style={[styles.reasonKeyBadge, hasDetails && styles.reasonKeyBadgeHighlighted]}>
+                    <IconComponent size={16} color={hasDetails ? Colors.accent : Colors.textTertiary} strokeWidth={2} />
                   </View>
                   <View style={styles.reasonContentWrapper}>
                     <Text style={styles.reasonTitle}>{item.title}</Text>
@@ -748,14 +831,14 @@ export default function ResultScreen() {
         <View style={styles.shareCardSection}>
           <Text style={styles.sectionTitle}>Share Card Preview</Text>
 
-          <View ref={shareCardRef} collapsable={false} style={[styles.shareCard, { borderColor: badgeColor }]}>
+          <View ref={shareCardRef} collapsable={false} style={[styles.shareCard, { borderColor: badgeColor, backgroundColor: `${badgeBg}` }]}>
             <View style={styles.shareCardHeader}>
               <Shield size={20} color={Colors.primary} strokeWidth={2} />
               <Text style={styles.shareCardBrand}>REAiL</Text>
             </View>
             <View style={styles.shareCardContent}>
-              <BadgePill badge={badge} size="medium" />
-              <Text style={styles.shareCardScore}>Score: {score}/100</Text>
+              <BadgePill badge={badge} size="large" />
+              <Text style={styles.shareCardScore}>Risk Score: {score}/100</Text>
               <Text style={styles.shareCardDomain}>{domain}</Text>
               {topReasons[0] && (
                 <Text style={styles.shareCardReason} numberOfLines={1}>
@@ -771,6 +854,7 @@ export default function ResultScreen() {
           onPress={() => router.replace("/")} 
           style={({ pressed }) => [styles.newScanBtn, pressed && styles.newScanBtnPressed]}
         >
+          <RefreshCw size={18} color={Colors.primary} strokeWidth={2} />
           <Text style={styles.newScanText}>Scan Another Link</Text>
         </Pressable>
 
@@ -822,6 +906,31 @@ export default function ResultScreen() {
       </Modal>
 
       <Modal
+        visible={scoreTooltipOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScoreTooltipOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setScoreTooltipOpen(false)}>
+          <Pressable style={styles.tooltipCard} onPress={() => {}}>
+            <View style={styles.tooltipHeader}>
+              <Info size={18} color={Colors.accent} strokeWidth={2} />
+              <Text style={styles.tooltipTitle}>Score ≠ Truth</Text>
+            </View>
+            <Text style={styles.tooltipText}>
+              The risk score reflects detected patterns and signals. A high score means fewer risk signals were found—not that the content is true or safe. Always use context and judgment.
+            </Text>
+            <Pressable 
+              style={({ pressed }) => [styles.tooltipBtn, pressed && styles.tooltipBtnPressed]} 
+              onPress={() => setScoreTooltipOpen(false)}
+            >
+              <Text style={styles.tooltipBtnText}>Understood</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
         visible={safeViewOpen}
         transparent
         animationType="fade"
@@ -842,7 +951,7 @@ export default function ResultScreen() {
               </View>
               <View style={styles.safeViewBadgeRow}>
                 <BadgePill badge={badge} size="small" />
-                <Text style={styles.safeViewScore}>Score: {score}/100</Text>
+                <Text style={styles.safeViewScore}>Risk Score: {score}/100</Text>
               </View>
               <Text style={styles.safeViewWarning}>
                 You are about to open this link in your browser. REAiL cannot guarantee the safety of external content.
@@ -917,17 +1026,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   badgeIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
+    borderWidth: 2,
   },
   domainText: {
     color: Colors.textSecondary,
     fontSize: 14,
-    marginTop: 8,
+    marginTop: 10,
   },
   scoreSection: {
     width: "100%",
@@ -945,6 +1055,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: Colors.border,
+    position: "relative",
+  },
+  scoreTooltipIcon: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.backgroundSecondary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scoreValue: {
     fontSize: 28,
@@ -953,7 +1075,7 @@ const styles = StyleSheet.create({
   scoreLabel: {
     fontSize: 10,
     color: Colors.textTertiary,
-    fontWeight: "500" as const,
+    fontWeight: "600" as const,
   },
   scoreBarContainer: {
     flex: 1,
@@ -1002,12 +1124,39 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
+    gap: 12,
+  },
+  whyScoreRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  whyScoreIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: `${Colors.accent}20`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  whyScoreTextWrap: {
+    flex: 1,
+  },
+  whyScoreTitle: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: "600" as const,
+    marginBottom: 2,
+  },
+  whyScoreSummary: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   whyScoreBullet: {
     color: Colors.textSecondary,
     fontSize: 13,
     lineHeight: 20,
-    marginBottom: 6,
   },
   heroSubtitleRow: {
     flexDirection: "row",
@@ -1035,33 +1184,38 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderWidth: 1.5,
   },
   nbaTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     marginBottom: 8,
+  },
+  nbaIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   nbaTitle: {
     color: Colors.text,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "700" as const,
   },
   nbaMessage: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    fontWeight: "600" as const,
+    fontSize: 15,
+    fontWeight: "700" as const,
     marginBottom: 10,
   },
   nbaTips: {
     marginBottom: 14,
   },
   nbaTip: {
-    color: Colors.textTertiary,
+    color: Colors.textSecondary,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 22,
   },
   nbaActions: {
     flexDirection: "row",
@@ -1143,11 +1297,25 @@ const styles = StyleSheet.create({
   evidenceSection: {
     marginTop: 24,
   },
+  evidenceTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  evidenceHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  evidenceHintText: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+  },
   sectionTitle: {
     color: "white",
     fontSize: 18,
     fontWeight: "700" as const,
-    marginBottom: 4,
   },
   sectionSubtitle: {
     color: Colors.textTertiary,
@@ -1326,6 +1494,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: "hidden",
   },
+  reasonCardHighlighted: {
+    borderColor: `${Colors.accent}40`,
+  },
   reasonCardPressed: {
     backgroundColor: Colors.backgroundTertiary,
   },
@@ -1336,17 +1507,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   reasonKeyBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: Colors.backgroundTertiary,
     alignItems: "center",
     justifyContent: "center",
   },
-  reasonKey: {
-    color: Colors.primary,
-    fontWeight: "800" as const,
-    fontSize: 14,
+  reasonKeyBadgeHighlighted: {
+    backgroundColor: `${Colors.accent}20`,
   },
   reasonContentWrapper: {
     flex: 1,
@@ -1393,7 +1562,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     borderWidth: 2,
-    backgroundColor: Colors.backgroundSecondary,
     marginTop: 8,
   },
   shareCardHeader: {
@@ -1441,8 +1609,10 @@ const styles = StyleSheet.create({
     marginTop: 24,
     height: 50,
     borderRadius: 14,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -1518,6 +1688,45 @@ const styles = StyleSheet.create({
   modalCloseText: {
     color: "white",
     fontSize: 15,
+    fontWeight: "600" as const,
+  },
+  tooltipCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tooltipHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  tooltipTitle: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: "700" as const,
+  },
+  tooltipText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  tooltipBtn: {
+    height: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  tooltipBtnPressed: {
+    backgroundColor: Colors.primaryDark,
+  },
+  tooltipBtnText: {
+    color: "white",
+    fontSize: 14,
     fontWeight: "600" as const,
   },
   safeViewContent: {
