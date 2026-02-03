@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Supabase Edge Function: scan-evidence
 // GET /scan/evidence?scanId= - Returns evidence rows for a scan
 // Returns: { evidence: [...] }

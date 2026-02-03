@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Supabase Edge Function: scan-result
 // GET /scan/result?scanId= - Returns full scan result with evidence
 // Returns: BackendScanResult

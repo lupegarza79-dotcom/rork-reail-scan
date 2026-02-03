@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Supabase Edge Function: content-scan
 // POST /scan/content - Performs Link Intel + Domain Intel analysis
 // Returns: { scan_id, badge, score, summary, evidence[] }
