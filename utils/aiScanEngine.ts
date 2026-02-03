@@ -5,6 +5,8 @@ import * as FileSystem from "expo-file-system";
 import { Platform } from "react-native";
 
 const SCAN_VERSION = "2.0.0";
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 1000;
 
 const ReasonDetailSchema = z.object({
   title: z.string().describe("Short title for this analysis category"),
@@ -57,76 +59,110 @@ export class AIScanEngine {
   async analyzeUrl(url: string): Promise<ScanResult> {
     console.log("[AIScanEngine] Analyzing URL with AI:", url);
     
-    try {
-      const analysis = await generateObject({
-        messages: [
-          {
-            role: "user",
-            content: this.buildUrlAnalysisPrompt(url),
-          },
-        ],
-        schema: ScanAnalysisSchema,
-      });
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[AIScanEngine] Retry attempt ${attempt}/${MAX_RETRIES}`);
+          await this.delay(RETRY_DELAY * attempt);
+        }
+        
+        const analysis = await generateObject({
+          messages: [
+            {
+              role: "user",
+              content: this.buildUrlAnalysisPrompt(url),
+            },
+          ],
+          schema: ScanAnalysisSchema,
+        });
 
-      console.log("[AIScanEngine] AI analysis complete:", analysis.badge, analysis.score);
-      
-      return this.mapAnalysisToResult(analysis, url);
-    } catch (error) {
-      console.error("[AIScanEngine] AI analysis failed:", error);
-      throw error;
+        console.log("[AIScanEngine] AI analysis complete:", analysis.badge, analysis.score);
+        
+        return this.mapAnalysisToResult(analysis, url);
+      } catch (error) {
+        lastError = error as Error;
+        console.warn(`[AIScanEngine] AI analysis attempt ${attempt + 1} failed:`, error);
+        
+        if (this.isRetryableError(error)) {
+          continue;
+        }
+        break;
+      }
     }
+    
+    console.error("[AIScanEngine] All AI analysis attempts failed, using fallback:", lastError);
+    return this.createFallbackResult(url);
   }
 
   async analyzeImage(imageUri: string): Promise<ScanResult> {
     console.log("[AIScanEngine] Analyzing image with AI:", imageUri);
     
-    try {
-      let imageData: string | null = null;
-      
-      if (Platform.OS !== "web") {
-        try {
-          const base64 = await FileSystem.readAsStringAsync(imageUri, {
-            encoding: 'base64',
-          });
-          imageData = `data:image/jpeg;base64,${base64}`;
-        } catch (e) {
-          console.log("[AIScanEngine] Could not read image as base64:", e);
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[AIScanEngine] Image retry attempt ${attempt}/${MAX_RETRIES}`);
+          await this.delay(RETRY_DELAY * attempt);
         }
-      }
+        
+        let imageData: string | null = null;
+        
+        if (Platform.OS !== "web") {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(imageUri, {
+              encoding: 'base64',
+            });
+            imageData = `data:image/jpeg;base64,${base64}`;
+          } catch (e) {
+            console.log("[AIScanEngine] Could not read image as base64:", e);
+          }
+        }
 
-      const messages: { role: "user"; content: string | ({ type: "text"; text: string } | { type: "image"; image: string })[] }[] = [];
-      
-      if (imageData) {
-        messages.push({
-          role: "user",
-          content: [
-            { type: "text", text: this.buildImageAnalysisPrompt() },
-            { type: "image", image: imageData },
-          ],
+        const messages: { role: "user"; content: string | ({ type: "text"; text: string } | { type: "image"; image: string })[] }[] = [];
+        
+        if (imageData) {
+          messages.push({
+            role: "user",
+            content: [
+              { type: "text", text: this.buildImageAnalysisPrompt() },
+              { type: "image", image: imageData },
+            ],
+          });
+        } else {
+          messages.push({
+            role: "user",
+            content: this.buildImageAnalysisPrompt() + "\n\n[Note: Image could not be processed directly. Analyze based on the request context.]",
+          });
+        }
+
+        const analysis = await generateObject({
+          messages,
+          schema: ScanAnalysisSchema,
         });
-      } else {
-        messages.push({
-          role: "user",
-          content: this.buildImageAnalysisPrompt() + "\n\n[Note: Image could not be processed directly. Analyze based on the request context.]",
-        });
+
+        console.log("[AIScanEngine] AI image analysis complete:", analysis.badge, analysis.score);
+        
+        const result = this.mapAnalysisToResult(analysis, "screenshot://uploaded");
+        result.domain = "Screenshot";
+        result.platform = "other";
+        
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        console.warn(`[AIScanEngine] Image analysis attempt ${attempt + 1} failed:`, error);
+        
+        if (this.isRetryableError(error)) {
+          continue;
+        }
+        break;
       }
-
-      const analysis = await generateObject({
-        messages,
-        schema: ScanAnalysisSchema,
-      });
-
-      console.log("[AIScanEngine] AI image analysis complete:", analysis.badge, analysis.score);
-      
-      const result = this.mapAnalysisToResult(analysis, "screenshot://uploaded");
-      result.domain = "Screenshot";
-      result.platform = "other";
-      
-      return result;
-    } catch (error) {
-      console.error("[AIScanEngine] AI image analysis failed:", error);
-      throw error;
     }
+    
+    console.error("[AIScanEngine] All image analysis attempts failed, using fallback:", lastError);
+    return this.createFallbackImageResult();
   }
 
   private buildUrlAnalysisPrompt(url: string): string {
@@ -280,6 +316,156 @@ Provide thorough analysis of:
     } catch {
       return "unknown";
     }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (error instanceof TypeError && String(error).includes('Failed to fetch')) {
+      return true;
+    }
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      return message.includes('network') || 
+             message.includes('timeout') || 
+             message.includes('fetch') ||
+             message.includes('connection');
+    }
+    return false;
+  }
+
+  private createFallbackResult(url: string): ScanResult {
+    console.log("[AIScanEngine] Creating fallback result for:", url);
+    const domain = this.extractDomain(url);
+    const platform = this.detectPlatform(url);
+    
+    const isTrustedPlatform = ['youtube', 'instagram', 'facebook', 'twitter', 'linkedin', 'reddit', 'news'].includes(platform);
+    const score = isTrustedPlatform ? 60 : 50;
+    const badge = score >= 50 ? 'UNVERIFIED' : 'HIGH_RISK';
+    
+    return {
+      id: this.generateId(),
+      url,
+      domain,
+      platform,
+      badge: badge as 'VERIFIED' | 'UNVERIFIED' | 'HIGH_RISK',
+      score,
+      reasons: {
+        A: {
+          title: "Media Integrity",
+          summary: "Analysis unavailable - service temporarily offline",
+          details: ["AI analysis service could not be reached", "Manual verification recommended", "Check content source directly"],
+          suggestion: "Try scanning again in a few moments",
+        },
+        B: {
+          title: "Duplicate Detection",
+          summary: "Unable to check for duplicate content",
+          details: ["Reverse image search not performed", "Content origin unverified"],
+          suggestion: "Use reverse image search tools manually",
+        },
+        C: {
+          title: "Claims Analysis",
+          summary: "Claims could not be verified",
+          details: ["Fact-checking service unavailable", "Cross-reference claims independently"],
+          suggestion: "Check multiple trusted sources",
+        },
+        D: {
+          title: "Account Signals",
+          summary: isTrustedPlatform ? "Known platform detected" : "Platform credibility unknown",
+          details: isTrustedPlatform 
+            ? ["Content is from a recognized platform", "Individual content verification still needed"]
+            : ["Unknown or unrecognized platform", "Exercise additional caution"],
+          suggestion: "Verify account authenticity manually",
+        },
+        E: {
+          title: "Link Safety",
+          summary: "Basic link analysis only",
+          details: [`Domain: ${domain}`, "Full security scan unavailable", "Proceed with standard caution"],
+          suggestion: "Verify URL before clicking any links",
+        },
+        F: {
+          title: "Pattern Analysis",
+          summary: "Scam pattern detection unavailable",
+          details: ["Pattern matching service offline", "Watch for common scam indicators"],
+          suggestion: "Be wary of too-good-to-be-true offers",
+        },
+      },
+      timestamp: Date.now(),
+      title: `Scan of ${domain} (Limited Analysis)`,
+      metrics: {
+        aiProbability: 50,
+        humanProbability: 50,
+        authenticityScore: score,
+        manipulationRisk: 50,
+        scamIndicators: 0,
+        confidenceLevel: 'low',
+      },
+      scanVersion: SCAN_VERSION,
+    };
+  }
+
+  private createFallbackImageResult(): ScanResult {
+    console.log("[AIScanEngine] Creating fallback image result");
+    
+    return {
+      id: this.generateId(),
+      url: "screenshot://uploaded",
+      domain: "Screenshot",
+      platform: "other",
+      badge: 'UNVERIFIED',
+      score: 50,
+      reasons: {
+        A: {
+          title: "Media Integrity",
+          summary: "Image analysis service temporarily unavailable",
+          details: ["AI analysis could not be completed", "Manual review recommended", "Check for visible manipulation signs"],
+          suggestion: "Try scanning again or verify content manually",
+        },
+        B: {
+          title: "Duplicate Detection",
+          summary: "Unable to check for duplicate images",
+          details: ["Reverse image search not performed"],
+          suggestion: "Use Google Images or TinEye for reverse search",
+        },
+        C: {
+          title: "Claims Analysis",
+          summary: "Text/claims in image not analyzed",
+          details: ["OCR analysis unavailable", "Verify any visible claims independently"],
+          suggestion: "Fact-check any text visible in the image",
+        },
+        D: {
+          title: "Account Signals",
+          summary: "Source account not analyzed",
+          details: ["Cannot determine original source", "Check where this image was shared"],
+          suggestion: "Verify the account sharing this content",
+        },
+        E: {
+          title: "Link Safety",
+          summary: "No links detected in image",
+          details: ["Image content only"],
+          suggestion: "Be cautious of any URLs shown in images",
+        },
+        F: {
+          title: "Pattern Analysis",
+          summary: "Scam pattern detection unavailable",
+          details: ["Pattern matching service offline"],
+          suggestion: "Watch for common visual scam formats",
+        },
+      },
+      timestamp: Date.now(),
+      title: "Screenshot Analysis (Limited)",
+      metrics: {
+        aiProbability: 50,
+        humanProbability: 50,
+        authenticityScore: 50,
+        manipulationRisk: 50,
+        scamIndicators: 0,
+        confidenceLevel: 'low',
+      },
+      scanVersion: SCAN_VERSION,
+    };
   }
 
   private detectPlatform(url: string): ScanResult["platform"] {
