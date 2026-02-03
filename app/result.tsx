@@ -53,10 +53,21 @@ import {
   Zap,
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
-import { fetchScanResultById } from "../utils/api";
+import { fetchScanWithEvidence } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
 import BadgePill, { getBadgeColor, getBadgeBg, getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
+import { 
+  PLACEHOLDER_EVIDENCE, 
+  getProviderLabel, 
+  getEvidenceScoreImpact, 
+  formatScoreImpact,
+  getStatusColor,
+  getStatusLabel,
+  buildEvidenceDetails,
+  calculateScoreFromEvidence,
+} from "@/utils/evidenceEngine";
+import type { EvidenceCard as EvidenceCardType, EvidenceStatus as EvidenceStatusType, ScoreAdjustment } from "@/types/scan";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -76,16 +87,9 @@ type ContentMetrics = {
   confidenceLevel?: 'high' | 'medium' | 'low';
 };
 
-type EvidenceStatus = 'verified' | 'unverified' | 'failed' | 'pending';
+type EvidenceStatus = EvidenceStatusType;
 
-type EvidenceCard = {
-  id: string;
-  provider: string;
-  status: EvidenceStatus;
-  summary: string;
-  payload?: Record<string, unknown>;
-  timestamp?: number;
-};
+type EvidenceCard = EvidenceCardType;
 
 type ScanResult = {
   scanId?: string;
@@ -107,6 +111,12 @@ type ScanResult = {
   };
   evidence?: EvidenceCard[];
   summary?: string;
+  scoreBreakdown?: {
+    baseScore: number;
+    adjustments: ScoreAdjustment[];
+    finalScore: number;
+    badge: string;
+  };
 };
 
 type Params = {
@@ -114,12 +124,7 @@ type Params = {
   payload?: string;
 };
 
-const PLACEHOLDER_EVIDENCE: EvidenceCard[] = [
-  { id: 'link-intel', provider: 'Link Intel', status: 'pending', summary: 'URL reputation and redirect analysis' },
-  { id: 'domain-intel', provider: 'Domain Intel', status: 'pending', summary: 'Domain age, registration, and history' },
-  { id: 'social-context', provider: 'Social Context', status: 'pending', summary: 'Platform signals and engagement patterns' },
-  { id: 'pattern-match', provider: 'Pattern Match', status: 'pending', summary: 'Known scam and fraud pattern detection' },
-];
+
 
 const REASON_ICONS: Record<ReasonKey, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   A: Video,
@@ -234,7 +239,7 @@ export default function ResultScreen() {
         setLoadingRemote(true);
         setRemoteError(null);
 
-        const remote = await fetchScanResultById(scanIdStr);
+        const remote = await fetchScanWithEvidence(scanIdStr);
         if (!active) return;
 
         setLoadingRemote(false);
@@ -312,8 +317,29 @@ export default function ResultScreen() {
       .map(k => ({ key: k, ...reasonsMerged[k] }));
   }, [reasonsMerged, sortedReasonKeys]);
 
-  const evidenceCards = result.evidence?.length ? result.evidence : PLACEHOLDER_EVIDENCE;
+  const evidenceCards: EvidenceCard[] = result.evidence?.length ? result.evidence : PLACEHOLDER_EVIDENCE;
   const hasRealEvidence = !!result.evidence?.length;
+
+  const scoreBreakdown = useMemo(() => {
+    if (result.scoreBreakdown) return result.scoreBreakdown;
+    if (hasRealEvidence && result.evidence) {
+      return calculateScoreFromEvidence(result.evidence);
+    }
+    return null;
+  }, [result.scoreBreakdown, result.evidence, hasRealEvidence]);
+
+  const evidenceImpacts = useMemo(() => {
+    if (!hasRealEvidence || !evidenceCards) return [];
+    return evidenceCards
+      .filter(e => e.status !== 'pending')
+      .map(e => ({
+        provider: e.providerLabel || getProviderLabel(e.provider),
+        status: e.status,
+        impact: getEvidenceScoreImpact(e),
+        summary: e.summary,
+      }))
+      .sort((a, b) => a.impact - b.impact);
+  }, [hasRealEvidence, evidenceCards]);
 
   const shareCardFooter = "Risk-based verification • Not absolute truth";
 
@@ -434,11 +460,11 @@ export default function ResultScreen() {
 
   const getEvidenceStatusIcon = (status: EvidenceStatus) => {
     switch (status) {
-      case 'verified':
+      case 'pass':
         return <FileCheck size={18} color={Colors.verified} strokeWidth={2} />;
-      case 'unverified':
+      case 'warn':
         return <FileQuestion size={18} color={Colors.unverified} strokeWidth={2} />;
-      case 'failed':
+      case 'fail':
         return <FileX size={18} color={Colors.highRisk} strokeWidth={2} />;
       case 'pending':
         return <FileClock size={18} color={Colors.textTertiary} strokeWidth={2} />;
@@ -449,9 +475,9 @@ export default function ResultScreen() {
 
   const getEvidenceStatusColor = (status: EvidenceStatus) => {
     switch (status) {
-      case 'verified': return Colors.verified;
-      case 'unverified': return Colors.unverified;
-      case 'failed': return Colors.highRisk;
+      case 'pass': return Colors.verified;
+      case 'warn': return Colors.unverified;
+      case 'fail': return Colors.highRisk;
       case 'pending': return Colors.textTertiary;
       default: return Colors.textTertiary;
     }
@@ -535,7 +561,74 @@ export default function ResultScreen() {
 
           {whyScoreOpen && (
             <View style={styles.whyScoreContent}>
-              {topReasons.length > 0 ? (
+              {scoreBreakdown && scoreBreakdown.adjustments.length > 0 ? (
+                <>
+                  <View style={styles.scoreBreakdownHeader}>
+                    <Text style={styles.scoreBreakdownBase}>Base Score: {scoreBreakdown.baseScore}</Text>
+                  </View>
+                  {scoreBreakdown.adjustments.map((adj, idx) => (
+                    <View key={idx} style={styles.whyScoreRow}>
+                      <View style={[
+                        styles.whyScoreIconWrap, 
+                        { backgroundColor: adj.impact > 0 ? `${Colors.verified}20` : adj.impact < -20 ? `${Colors.highRisk}20` : `${Colors.unverified}20` }
+                      ]}>
+                        <Text style={[
+                          styles.impactText,
+                          { color: adj.impact > 0 ? Colors.verified : adj.impact < -20 ? Colors.highRisk : Colors.unverified }
+                        ]}>
+                          {formatScoreImpact(adj.impact)}
+                        </Text>
+                      </View>
+                      <View style={styles.whyScoreTextWrap}>
+                        <Text style={styles.whyScoreTitle}>{getProviderLabel(adj.provider)}</Text>
+                        <Text style={styles.whyScoreSummary}>{adj.reason}</Text>
+                      </View>
+                      <View style={[
+                        styles.severityBadge,
+                        { backgroundColor: adj.severity === 'critical' ? `${Colors.highRisk}20` : adj.severity === 'major' ? `${Colors.unverified}20` : `${Colors.textTertiary}20` }
+                      ]}>
+                        <Text style={[
+                          styles.severityText,
+                          { color: adj.severity === 'critical' ? Colors.highRisk : adj.severity === 'major' ? Colors.unverified : Colors.textTertiary }
+                        ]}>
+                          {adj.severity.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                  <View style={styles.scoreBreakdownFooter}>
+                    <Text style={styles.scoreBreakdownFinal}>Final Score: {scoreBreakdown.finalScore}</Text>
+                  </View>
+                </>
+              ) : evidenceImpacts.length > 0 ? (
+                evidenceImpacts.map((item, idx) => (
+                  <View key={idx} style={styles.whyScoreRow}>
+                    <View style={[
+                      styles.whyScoreIconWrap, 
+                      { backgroundColor: item.impact > 0 ? `${Colors.verified}20` : item.impact < -20 ? `${Colors.highRisk}20` : `${Colors.unverified}20` }
+                    ]}>
+                      <Text style={[
+                        styles.impactText,
+                        { color: item.impact > 0 ? Colors.verified : item.impact < -20 ? Colors.highRisk : Colors.unverified }
+                      ]}>
+                        {formatScoreImpact(item.impact)}
+                      </Text>
+                    </View>
+                    <View style={styles.whyScoreTextWrap}>
+                      <Text style={styles.whyScoreTitle}>{item.provider}</Text>
+                      <Text style={styles.whyScoreSummary}>{item.summary}</Text>
+                    </View>
+                    <View style={[
+                      styles.statusChip,
+                      { backgroundColor: `${getStatusColor(item.status)}20` }
+                    ]}>
+                      <Text style={[styles.statusChipText, { color: getStatusColor(item.status) }]}>
+                        {getStatusLabel(item.status)}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              ) : topReasons.length > 0 ? (
                 topReasons.map((r, idx) => {
                   const IconComponent = REASON_ICONS[r.key as ReasonKey];
                   return (
@@ -648,10 +741,14 @@ export default function ResultScreen() {
           {evidenceCards.map((item) => {
             const isOpen = expandedEvidence[item.id] ?? false;
             const isPending = item.status === 'pending';
+            const impact = getEvidenceScoreImpact(item);
+            const details = item.payload ? buildEvidenceDetails(item) : [];
+            const providerLabel = item.providerLabel || getProviderLabel(item.provider);
+            
             return (
               <Pressable
                 key={item.id}
-                onPress={() => !isPending && item.payload && toggleEvidenceExpand(item.id)}
+                onPress={() => !isPending && (item.payload || details.length > 0) && toggleEvidenceExpand(item.id)}
                 style={({ pressed }) => [
                   styles.evidenceCard,
                   isPending && styles.evidenceCardPending,
@@ -665,19 +762,35 @@ export default function ResultScreen() {
                   <View style={styles.evidenceContentWrapper}>
                     <View style={styles.evidenceProviderRow}>
                       <Text style={[styles.evidenceProvider, isPending && styles.evidenceProviderPending]}>
-                        {item.provider}
+                        {providerLabel}
                       </Text>
                       <View style={[styles.evidenceStatusBadge, { backgroundColor: `${getEvidenceStatusColor(item.status)}20` }]}>
                         <Text style={[styles.evidenceStatusText, { color: getEvidenceStatusColor(item.status) }]}>
-                          {item.status.toUpperCase()}
+                          {getStatusLabel(item.status)}
                         </Text>
                       </View>
+                      {!isPending && impact !== 0 && (
+                        <View style={[
+                          styles.evidenceImpactBadge, 
+                          { backgroundColor: impact > 0 ? `${Colors.verified}20` : `${Colors.highRisk}20` }
+                        ]}>
+                          <Text style={[
+                            styles.evidenceImpactText, 
+                            { color: impact > 0 ? Colors.verified : Colors.highRisk }
+                          ]}>
+                            {formatScoreImpact(impact)}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                     <Text style={[styles.evidenceSummary, isPending && styles.evidenceSummaryPending]} numberOfLines={isOpen ? undefined : 2}>
                       {isPending ? "Coming soon" : item.summary}
                     </Text>
+                    {item.weight !== undefined && !isPending && (
+                      <Text style={styles.evidenceWeight}>Weight: {item.weight}%</Text>
+                    )}
                   </View>
-                  {item.payload && !isPending && (
+                  {(item.payload || details.length > 0) && !isPending && (
                     isOpen ? (
                       <ChevronDown size={18} color={Colors.textTertiary} strokeWidth={2} />
                     ) : (
@@ -686,14 +799,26 @@ export default function ResultScreen() {
                   )}
                 </View>
 
-                {isOpen && item.payload && (
+                {isOpen && (details.length > 0 || item.payload) && (
                   <View style={styles.evidencePayload}>
-                    <Text style={styles.evidencePayloadTitle}>Raw Data</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <Text style={styles.evidencePayloadText}>
-                        {JSON.stringify(item.payload, null, 2)}
-                      </Text>
-                    </ScrollView>
+                    {details.length > 0 && (
+                      <View style={styles.evidenceDetailsSection}>
+                        <Text style={styles.evidencePayloadTitle}>Details</Text>
+                        {details.map((d, i) => (
+                          <Text key={i} style={styles.evidenceDetailItem}>• {d}</Text>
+                        ))}
+                      </View>
+                    )}
+                    {item.payload && (
+                      <View style={styles.evidenceRawSection}>
+                        <Text style={styles.evidencePayloadTitle}>Raw Data</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <Text style={styles.evidencePayloadText}>
+                            {JSON.stringify(item.payload, null, 2)}
+                          </Text>
+                        </ScrollView>
+                      </View>
+                    )}
                   </View>
                 )}
               </Pressable>
@@ -1813,5 +1938,78 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: "center" as const,
     fontSize: 13,
+  },
+  impactText: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+  },
+  severityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  severityText: {
+    fontSize: 8,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+  },
+  statusChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  statusChipText: {
+    fontSize: 9,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+  },
+  scoreBreakdownHeader: {
+    paddingBottom: 10,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  scoreBreakdownBase: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600" as const,
+  },
+  scoreBreakdownFooter: {
+    paddingTop: 10,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  scoreBreakdownFinal: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "700" as const,
+  },
+  evidenceImpactBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 4,
+  },
+  evidenceImpactText: {
+    fontSize: 10,
+    fontWeight: "700" as const,
+  },
+  evidenceWeight: {
+    color: Colors.textTertiary,
+    fontSize: 10,
+    marginTop: 4,
+  },
+  evidenceDetailsSection: {
+    marginBottom: 12,
+  },
+  evidenceDetailItem: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    marginLeft: 4,
+  },
+  evidenceRawSection: {
+    marginTop: 8,
   },
 });

@@ -4,9 +4,10 @@ import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
 import { cacheScanResult } from "./scanCache";
-import { postScanUrl } from "./api";
+import { postScanUrl, contentScan } from "./api";
+import { calculateScoreFromEvidence, PLACEHOLDER_EVIDENCE } from "./evidenceEngine";
 
-import type { ScanResult, BadgeType, ScanReasons } from "@/types/scan";
+import type { ScanResult, BadgeType, ScanReasons, EvidenceCard } from "@/types/scan";
 
 export interface ScanUrlRequest {
   url: string;
@@ -34,6 +35,8 @@ interface ApiScanResponse {
   title?: string;
   timestamp: number;
   disclaimerKey: string;
+  evidence?: EvidenceCard[];
+  summary?: string;
 }
 
 const SETTINGS_KEY = "reail_settings_v1";
@@ -162,6 +165,39 @@ class ScanService {
     const url = this.normalizeUrl(request.url);
     const advanced = request.advancedScan ?? settings.advancedScan;
 
+    // Try content-scan endpoint first for real Evidence Pack
+    try {
+      console.log("[ScanService] Trying content-scan for:", url);
+      const contentResult = await contentScan(url);
+      
+      if (contentResult && contentResult.evidence?.length) {
+        console.log("[ScanService] Got real evidence pack:", contentResult.evidence.length, "cards");
+        
+        // Calculate score from evidence if not provided
+        const breakdown = contentResult.scoreBreakdown || calculateScoreFromEvidence(contentResult.evidence);
+        
+        const result: ScanResult = {
+          id: contentResult.scanId,
+          url,
+          finalUrl: contentResult.finalUrl,
+          domain: contentResult.domain || this.extractDomain(url),
+          platform: detectPlatform(url),
+          badge: contentResult.badge || breakdown.badge,
+          score: contentResult.score || breakdown.finalScore,
+          reasons: this.buildReasonsFromEvidence(contentResult.evidence),
+          timestamp: Date.now(),
+          evidence: contentResult.evidence,
+          summary: contentResult.summary,
+          scoreBreakdown: breakdown,
+        };
+
+        await this.recordLocalStorage(result);
+        return result;
+      }
+    } catch (err) {
+      console.log("[ScanService] content-scan failed, falling back:", err);
+    }
+
     if (this.useAI) {
       try {
         const res = await aiScanEngine.analyzeUrl(url);
@@ -171,6 +207,7 @@ class ScanService {
           domain: res.domain || this.extractDomain(url),
           platform: res.platform || detectPlatform(url),
           timestamp: res.timestamp || Date.now(),
+          evidence: PLACEHOLDER_EVIDENCE,
         };
 
         // Send to backend for canonical scanId (cross-device)
@@ -225,10 +262,79 @@ class ScanService {
       domain: mock.domain || this.extractDomain(url),
       platform: mock.platform || detectPlatform(url),
       timestamp: mock.timestamp || Date.now(),
+      evidence: PLACEHOLDER_EVIDENCE,
     };
 
     await this.recordLocalStorage(result);
     return result;
+  }
+
+  private buildReasonsFromEvidence(evidence: EvidenceCard[]): ScanReasons {
+    const reasons: ScanReasons = {
+      A: { title: "Media Integrity", summary: "No media analysis available.", details: [] },
+      B: { title: "Duplicate / Re-used Media", summary: "No duplicate check performed.", details: [] },
+      C: { title: "Claims vs Public Signals", summary: "Claims not analyzed.", details: [] },
+      D: { title: "Account Signals", summary: "Account not analyzed.", details: [] },
+      E: { title: "Link Safety", summary: "Link analysis pending.", details: [] },
+      F: { title: "Patterns / Reports", summary: "Pattern matching pending.", details: [] },
+    };
+
+    for (const card of evidence) {
+      if (card.status === 'pending') continue;
+
+      switch (card.provider) {
+        case 'link_intel':
+          reasons.E = {
+            title: "Link Safety",
+            summary: card.summary,
+            details: this.extractDetails(card),
+          };
+          break;
+        case 'domain_intel':
+          reasons.E = {
+            ...reasons.E,
+            summary: reasons.E.summary + " " + card.summary,
+            details: [...(reasons.E.details || []), ...this.extractDetails(card)],
+          };
+          break;
+        case 'social_context':
+          reasons.D = {
+            title: "Account Signals",
+            summary: card.summary,
+            details: this.extractDetails(card),
+          };
+          break;
+        case 'pattern_match':
+          reasons.F = {
+            title: "Patterns / Reports",
+            summary: card.summary,
+            details: this.extractDetails(card),
+          };
+          break;
+      }
+    }
+
+    return reasons;
+  }
+
+  private extractDetails(card: EvidenceCard): string[] {
+    const details: string[] = [];
+    if (!card.payload) return details;
+
+    const p = card.payload as Record<string, unknown>;
+    
+    if (p.redirectCount !== undefined) details.push(`Redirect count: ${p.redirectCount}`);
+    if (p.hasDoubleHop) details.push("Double-hop redirect detected");
+    if (p.domainAgeDays !== undefined) details.push(`Domain age: ${p.domainAgeDays} days`);
+    if (p.isPunycode) details.push("⚠️ Punycode domain detected");
+    if (p.isLookalike) details.push(`⚠️ Lookalike domain (similar to ${p.lookalikeTo})`);
+    if (p.phishingScore !== undefined) details.push(`Phishing score: ${p.phishingScore}/100`);
+    if (p.knownScamMatch) details.push("⚠️ Known scam URL match");
+    if (p.matchedPatterns && Array.isArray(p.matchedPatterns) && p.matchedPatterns.length > 0) {
+      details.push(`Matched patterns: ${(p.matchedPatterns as string[]).join(", ")}`);
+    }
+
+    return details;
   }
 
   async scanMedia(request: ScanMediaRequest): Promise<ScanResult> {
