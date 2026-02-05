@@ -18,6 +18,7 @@ export const BASE_URL =
 | `/scan/evidence` | `scan-evidence` | GET | Fetch evidence by scanId |
 | `/scan/result` | `scan-result` | GET | Fetch full scan result with evidence |
 | `/scan/history` | `scan-history` | GET | Fetch scan history by device_id |
+| `/report-scan` | `report-scan` | POST | Submit user report for a URL |
 
 ## Deployment Commands
 
@@ -27,6 +28,7 @@ supabase functions deploy content-scan
 supabase functions deploy scan-evidence
 supabase functions deploy scan-result
 supabase functions deploy scan-history
+supabase functions deploy report-scan
 
 # Set secrets (required for content-scan)
 supabase secrets set WHOIS_API_KEY=your_whois_api_key
@@ -66,7 +68,7 @@ Response (`ContentScanResponse`):
   "summary": "string",
   "evidence": [
     {
-      "provider": "link_intel" | "domain_intel",
+      "provider": "link_intel" | "domain_intel" | "pattern_match",
       "status": "pass" | "warn" | "fail",
       "summary": "string",
       "weight": 25,
@@ -115,12 +117,38 @@ Response (`BackendScanResult`):
 }
 ```
 
+### POST /report-scan
+Request:
+```json
+{
+  "scan_id": "uuid (optional)",
+  "url": "https://suspicious-site.com",
+  "report_type": "scam" | "phishing" | "spam" | "misleading" | "safe" | "other",
+  "description": "optional description"
+}
+```
+
+Response (`ReportScanResponse`):
+```json
+{
+  "report_id": "uuid",
+  "message": "Report submitted successfully",
+  "total_reports": 5
+}
+```
+
 ## Database Tables
 
-Run `supabase/migrations/20240203_scan_tables.sql` to create:
+Run migrations in order:
+1. `supabase/migrations/20240203_scan_tables.sql` - Core tables
+2. `supabase/migrations/20240204_scan_reports.sql` - Reports table
+
+Tables created:
 - `scan_results` - Main scan records
 - `scan_evidence` - Evidence cards linked to scans
-- `scan_with_evidence` - View joining both
+- `scan_reports` - User-submitted reports (feeds into pattern_match)
+- `scan_with_evidence` - View joining results + evidence
+- `report_aggregates` - View with report counts per URL/domain
 
 ## Testing
 
@@ -138,6 +166,12 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-evidence?scanId=<SCAN_
 # Test scan-history
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-history?limit=50" \
   -H "X-Device-Id: test-device"
+
+# Test report-scan
+curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/report-scan \
+  -H "Content-Type: application/json" \
+  -H "X-Device-Id: test-device" \
+  -d '{"url": "https://suspicious-site.com", "report_type": "scam"}'
 ```
 
 ### GET /scan/history?limit=100&offset=0

@@ -19,6 +19,17 @@ export interface LinkIntelPayload extends EvidencePayload {
   suspiciousRedirect?: boolean;
 }
 
+export interface SslAnalysis {
+  hasSSL: boolean;
+  certAgeDays: number | null;
+  certExpiresInDays: number | null;
+  isSelfSigned: boolean;
+  issuer: string | null;
+  subjectMismatch: boolean;
+  validFrom: string | null;
+  validTo: string | null;
+}
+
 export interface DomainIntelPayload extends EvidencePayload {
   domain?: string;
   domainAge?: number;
@@ -35,6 +46,7 @@ export interface DomainIntelPayload extends EvidencePayload {
   hasMxRecords?: boolean;
   asnRisk?: 'low' | 'medium' | 'high';
   hostingProvider?: string;
+  ssl?: SslAnalysis | null;
 }
 
 export interface SocialContextPayload extends EvidencePayload {
@@ -49,9 +61,15 @@ export interface SocialContextPayload extends EvidencePayload {
 
 export interface PatternMatchPayload extends EvidencePayload {
   matchedPatterns?: string[];
+  matchedKeywords?: string[];
+  keywordCount?: number;
   phishingScore?: number;
   scamKeywords?: string[];
   knownScamMatch?: boolean;
+  knownScamReason?: string | null;
+  patternMatches?: string[];
+  reportCount?: number;
+  reportWeight?: number;
   similarReportedUrls?: number;
 }
 
@@ -160,4 +178,19 @@ export interface ContentScanResponse {
     payload: Record<string, unknown>;
   }[];
   score_breakdown?: ScoreBreakdown;
+}
+
+export type ReportType = 'scam' | 'phishing' | 'spam' | 'misleading' | 'safe' | 'other';
+
+export interface ReportScanRequest {
+  scan_id?: string;
+  url: string;
+  report_type: ReportType;
+  description?: string;
+}
+
+export interface ReportScanResponse {
+  report_id: string;
+  message: string;
+  total_reports: number;
 }

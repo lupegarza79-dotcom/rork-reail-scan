@@ -14,7 +14,49 @@ const corsHeaders = {
 
 type BadgeType = "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
 type EvidenceStatus = "pass" | "warn" | "fail";
-type EvidenceProvider = "link_intel" | "domain_intel" | "social_context" | "pattern_match";
+type EvidenceProvider = "link_intel" | "domain_intel" | "social_context" | "pattern_match" | "ssl_intel";
+
+const SCAM_KEYWORDS = [
+  "urgent", "verify", "suspended", "investment", "crypto", "giveaway",
+  "act now", "limited time", "click here", "confirm your", "update your",
+  "account locked", "security alert", "unusual activity", "verify identity",
+  "wire transfer", "bitcoin", "ethereum", "nft", "airdrop", "free money",
+  "congratulations", "you won", "claim your", "prize", "lottery",
+  "inheritance", "beneficiary", "nigerian prince", "bank transfer",
+  "password expired", "login attempt", "suspicious login"
+];
+
+const KNOWN_SCAM_URLS: Record<string, { reason: string; severity: "high" | "medium" }> = {
+  "secure-login-verify.com": { reason: "Known phishing domain", severity: "high" },
+  "account-verify-now.com": { reason: "Known phishing domain", severity: "high" },
+  "free-crypto-giveaway.xyz": { reason: "Crypto scam domain", severity: "high" },
+  "investment-returns-guaranteed.com": { reason: "Investment scam", severity: "high" },
+  "urgent-bank-verify.net": { reason: "Banking phishing", severity: "high" },
+  "apple-id-locked.com": { reason: "Apple phishing", severity: "high" },
+  "netflix-payment-update.com": { reason: "Netflix phishing", severity: "high" },
+  "amazon-order-problem.com": { reason: "Amazon phishing", severity: "high" },
+  "paypal-limited-account.com": { reason: "PayPal phishing", severity: "high" },
+  "microsoft-security-alert.com": { reason: "Microsoft phishing", severity: "high" },
+  "coinbase-verify-account.com": { reason: "Crypto exchange phishing", severity: "high" },
+  "binance-airdrop.xyz": { reason: "Crypto scam", severity: "high" },
+  "telegram-verify.com": { reason: "Telegram phishing", severity: "medium" },
+  "whatsapp-update-required.com": { reason: "WhatsApp phishing", severity: "medium" },
+};
+
+const SCAM_URL_PATTERNS = [
+  /secure.*login.*verify/i,
+  /account.*verify.*now/i,
+  /free.*crypto/i,
+  /investment.*guarantee/i,
+  /urgent.*bank/i,
+  /\w+-id-locked/i,
+  /\w+-payment-update/i,
+  /\w+-order-problem/i,
+  /\w+-limited-account/i,
+  /\w+-security-alert/i,
+  /verify-.*-account/i,
+  /.*-airdrop\./i,
+];
 
 interface EvidenceItem {
   provider: EvidenceProvider;
@@ -51,6 +93,28 @@ interface DomainIntelPayload {
   hasMxRecords: boolean | null;
   asnRisk: "low" | "medium" | "high";
   hostingProvider: string | null;
+  ssl: SslAnalysis | null;
+}
+
+interface SslAnalysis {
+  hasSSL: boolean;
+  certAgeDays: number | null;
+  certExpiresInDays: number | null;
+  isSelfSigned: boolean;
+  issuer: string | null;
+  subjectMismatch: boolean;
+  validFrom: string | null;
+  validTo: string | null;
+}
+
+interface PatternMatchPayload {
+  matchedKeywords: string[];
+  keywordCount: number;
+  knownScamMatch: boolean;
+  knownScamReason: string | null;
+  patternMatches: string[];
+  reportCount: number;
+  reportWeight: number;
 }
 
 const SHORTLINK_DOMAINS = [
@@ -253,6 +317,85 @@ async function analyzeLinkIntel(url: string): Promise<EvidenceItem> {
   };
 }
 
+async function analyzeSsl(url: string): Promise<SslAnalysis | null> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      return { hasSSL: false, certAgeDays: null, certExpiresInDays: null, isSelfSigned: false, issuer: null, subjectMismatch: false, validFrom: null, validTo: null };
+    }
+    
+    const resp = await fetch(`https://api.ssllabs.com/api/v3/analyze?host=${parsed.hostname}&fromCache=on&maxAge=24`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (!resp.ok) {
+      console.log("[SSL] SSLLabs API failed, using fallback");
+      return await analyzeSslFallback(parsed.hostname);
+    }
+    
+    const data = await resp.json();
+    const endpoint = data?.endpoints?.[0];
+    const cert = endpoint?.details?.cert;
+    
+    if (!cert) {
+      return await analyzeSslFallback(parsed.hostname);
+    }
+    
+    const validFrom = cert.notBefore ? new Date(cert.notBefore).toISOString() : null;
+    const validTo = cert.notAfter ? new Date(cert.notAfter).toISOString() : null;
+    const certAgeDays = validFrom ? Math.floor((Date.now() - new Date(validFrom).getTime()) / (1000 * 60 * 60 * 24)) : null;
+    const certExpiresInDays = validTo ? Math.floor((new Date(validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+    
+    const issuer = cert.issuerSubject || null;
+    const isSelfSigned = issuer ? issuer.toLowerCase().includes(parsed.hostname.toLowerCase()) || cert.sigAlg?.includes("self") : false;
+    const subjectMismatch = cert.commonNames ? !cert.commonNames.some((cn: string) => cn === parsed.hostname || cn.endsWith(`.${parsed.hostname}`) || (cn.startsWith("*.") && parsed.hostname.endsWith(cn.slice(1)))) : false;
+    
+    return {
+      hasSSL: true,
+      certAgeDays,
+      certExpiresInDays,
+      isSelfSigned,
+      issuer,
+      subjectMismatch,
+      validFrom,
+      validTo,
+    };
+  } catch (e) {
+    console.log("[SSL] Analysis failed:", e);
+    return null;
+  }
+}
+
+async function analyzeSslFallback(hostname: string): Promise<SslAnalysis> {
+  try {
+    const resp = await fetch(`https://${hostname}`, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(5000),
+    });
+    return {
+      hasSSL: resp.ok || resp.status < 500,
+      certAgeDays: null,
+      certExpiresInDays: null,
+      isSelfSigned: false,
+      issuer: null,
+      subjectMismatch: false,
+      validFrom: null,
+      validTo: null,
+    };
+  } catch {
+    return {
+      hasSSL: false,
+      certAgeDays: null,
+      certExpiresInDays: null,
+      isSelfSigned: false,
+      issuer: null,
+      subjectMismatch: false,
+      validFrom: null,
+      validTo: null,
+    };
+  }
+}
+
 async function analyzeDomainIntel(url: string): Promise<EvidenceItem> {
   const domain = extractDomain(url);
   console.log("[DomainIntel] Analyzing:", domain);
@@ -269,15 +412,23 @@ async function analyzeDomainIntel(url: string): Promise<EvidenceItem> {
   let hasMxRecords: boolean | null = null;
   let asnRisk: "low" | "medium" | "high" = "low";
   let hostingProvider: string | null = null;
+  let ssl: SslAnalysis | null = null;
   
-  try {
-    const whoisResp = await fetch(
+  const [whoisResult, dnsResult, sslResult] = await Promise.allSettled([
+    fetch(
       `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${Deno.env.get("WHOIS_API_KEY")}&domainName=${domain}&outputFormat=JSON`,
       { signal: AbortSignal.timeout(5000) }
-    );
-    
-    if (whoisResp.ok) {
-      const whoisData = await whoisResp.json();
+    ),
+    fetch(
+      `https://dns.google/resolve?name=${domain}&type=MX`,
+      { signal: AbortSignal.timeout(3000) }
+    ),
+    analyzeSsl(url),
+  ]);
+  
+  if (whoisResult.status === "fulfilled" && whoisResult.value.ok) {
+    try {
+      const whoisData = await whoisResult.value.json();
       const record = whoisData?.WhoisRecord;
       
       if (record?.createdDate) {
@@ -293,23 +444,22 @@ async function analyzeDomainIntel(url: string): Promise<EvidenceItem> {
       if (record?.registrarName) {
         registrar = record.registrarName;
       }
+    } catch (e) {
+      console.log("[DomainIntel] WHOIS parse failed:", e);
     }
-  } catch (e) {
-    console.log("[DomainIntel] WHOIS lookup failed:", e);
   }
   
-  try {
-    const dnsResp = await fetch(
-      `https://dns.google/resolve?name=${domain}&type=MX`,
-      { signal: AbortSignal.timeout(3000) }
-    );
-    
-    if (dnsResp.ok) {
-      const dnsData = await dnsResp.json();
+  if (dnsResult.status === "fulfilled" && dnsResult.value.ok) {
+    try {
+      const dnsData = await dnsResult.value.json();
       hasMxRecords = (dnsData?.Answer?.length ?? 0) > 0;
+    } catch {
+      console.log("[DomainIntel] DNS parse failed");
     }
-  } catch {
-    console.log("[DomainIntel] DNS MX lookup failed");
+  }
+  
+  if (sslResult.status === "fulfilled") {
+    ssl = sslResult.value;
   }
   
   const payload: DomainIntelPayload = {
@@ -326,6 +476,7 @@ async function analyzeDomainIntel(url: string): Promise<EvidenceItem> {
     hasMxRecords,
     asnRisk,
     hostingProvider,
+    ssl,
   };
   
   let status: EvidenceStatus = "pass";
@@ -354,6 +505,40 @@ async function analyzeDomainIntel(url: string): Promise<EvidenceItem> {
     status = "warn";
     summary = "No MX records found";
     scoreImpact = -5;
+  }
+  
+  if (ssl) {
+    if (!ssl.hasSSL) {
+      if (status === "pass") {
+        status = "warn";
+        summary = "No SSL certificate";
+      }
+      scoreImpact -= 10;
+    } else if (ssl.isSelfSigned) {
+      if (status === "pass") {
+        status = "warn";
+        summary = "Self-signed SSL certificate";
+      }
+      scoreImpact -= 15;
+    } else if (ssl.subjectMismatch) {
+      if (status === "pass") {
+        status = "fail";
+        summary = "SSL certificate domain mismatch";
+      }
+      scoreImpact -= 20;
+    } else if (ssl.certAgeDays !== null && ssl.certAgeDays < 7) {
+      if (status === "pass") {
+        status = "warn";
+        summary = `SSL certificate only ${ssl.certAgeDays} days old`;
+      }
+      scoreImpact -= 5;
+    } else if (ssl.certExpiresInDays !== null && ssl.certExpiresInDays < 7) {
+      if (status === "pass") {
+        status = "warn";
+        summary = "SSL certificate expiring soon";
+      }
+      scoreImpact -= 5;
+    }
   }
   
   console.log("[DomainIntel] Result:", { status, summary, scoreImpact });
@@ -427,6 +612,115 @@ function detectPlatform(url: string): string {
   return "other";
 }
 
+async function analyzePatternMatch(url: string, supabaseUrl: string, serviceKey: string): Promise<EvidenceItem> {
+  const domain = extractDomain(url);
+  const urlLower = url.toLowerCase();
+  console.log("[PatternMatch] Analyzing:", url);
+  
+  const matchedKeywords: string[] = [];
+  for (const keyword of SCAM_KEYWORDS) {
+    if (urlLower.includes(keyword.toLowerCase().replace(/ /g, ""))) {
+      matchedKeywords.push(keyword);
+    }
+  }
+  
+  const knownScam = KNOWN_SCAM_URLS[domain];
+  const knownScamMatch = !!knownScam;
+  const knownScamReason = knownScam?.reason || null;
+  
+  const patternMatches: string[] = [];
+  for (const pattern of SCAM_URL_PATTERNS) {
+    if (pattern.test(domain) || pattern.test(url)) {
+      patternMatches.push(pattern.source);
+    }
+  }
+  
+  let reportCount = 0;
+  let reportWeight = 0;
+  try {
+    const sb = createClient(supabaseUrl, serviceKey);
+    const { data: reports } = await sb
+      .from("scan_reports")
+      .select("report_type, created_at")
+      .or(`url.eq.${url},domain.eq.${domain}`)
+      .limit(100);
+    
+    if (reports && reports.length > 0) {
+      reportCount = reports.length;
+      const now = Date.now();
+      for (const r of reports) {
+        const age = now - new Date(r.created_at).getTime();
+        const dayAge = age / (1000 * 60 * 60 * 24);
+        if (dayAge < 7) {
+          reportWeight += r.report_type === "scam" ? 3 : r.report_type === "phishing" ? 3 : 1;
+        } else if (dayAge < 30) {
+          reportWeight += r.report_type === "scam" ? 2 : r.report_type === "phishing" ? 2 : 0.5;
+        } else {
+          reportWeight += 0.25;
+        }
+      }
+    }
+  } catch (e) {
+    console.log("[PatternMatch] Report lookup failed:", e);
+  }
+  
+  const payload: PatternMatchPayload = {
+    matchedKeywords,
+    keywordCount: matchedKeywords.length,
+    knownScamMatch,
+    knownScamReason,
+    patternMatches,
+    reportCount,
+    reportWeight,
+  };
+  
+  let status: EvidenceStatus = "pass";
+  let summary = "No scam patterns detected";
+  let scoreImpact = 5;
+  
+  if (knownScamMatch) {
+    status = "fail";
+    summary = `Known scam: ${knownScamReason}`;
+    scoreImpact = knownScam?.severity === "high" ? -40 : -25;
+  } else if (reportWeight >= 10) {
+    status = "fail";
+    summary = `${reportCount} user reports (high confidence scam)`;
+    scoreImpact = -30;
+  } else if (patternMatches.length > 0) {
+    status = "fail";
+    summary = "URL matches known scam patterns";
+    scoreImpact = -25;
+  } else if (matchedKeywords.length >= 3) {
+    status = "fail";
+    summary = `Multiple scam keywords detected: ${matchedKeywords.slice(0, 3).join(", ")}`;
+    scoreImpact = -20;
+  } else if (reportWeight >= 3) {
+    status = "warn";
+    summary = `${reportCount} user reports flagged this URL`;
+    scoreImpact = -15;
+  } else if (matchedKeywords.length >= 1) {
+    status = "warn";
+    summary = `Scam keyword detected: ${matchedKeywords[0]}`;
+    scoreImpact = -10;
+  } else if (reportCount > 0) {
+    status = "warn";
+    summary = `${reportCount} previous user report(s)`;
+    scoreImpact = -5;
+  }
+  
+  console.log("[PatternMatch] Result:", { status, summary, scoreImpact });
+  
+  return {
+    provider: "pattern_match",
+    provider_label: "Pattern Match",
+    status,
+    summary,
+    weight: 20,
+    score_impact: scoreImpact,
+    payload,
+  };
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -452,20 +746,21 @@ serve(async (req: Request) => {
     
     console.log("[content-scan] Starting scan for:", url, "device:", deviceId);
     
-    const [linkIntel, domainIntel] = await Promise.all([
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    const [linkIntel, domainIntel, patternMatch] = await Promise.all([
       analyzeLinkIntel(url),
       analyzeDomainIntel(url),
+      analyzePatternMatch(url, supabaseUrl, supabaseServiceKey),
     ]);
     
-    const evidence: EvidenceItem[] = [linkIntel, domainIntel];
+    const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch];
     const { score, badge } = calculateScore(evidence);
     const domain = extractDomain(linkIntel.payload.finalUrl as string || url);
     const summary = generateSummary(badge, evidence, domain);
     const platform = detectPlatform(url);
-    
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
     const scoreBreakdown = {
       baseScore: 70,
