@@ -30,26 +30,37 @@ supabase functions deploy scan-result
 supabase functions deploy scan-history
 supabase functions deploy report-scan
 
-# Set secrets (required for content-scan)
+# Set required secrets
+supabase secrets set PROJECT_URL=https://<REF>.supabase.co
+supabase secrets set SERVICE_ROLE_KEY=your_service_role_key
 supabase secrets set WHOIS_API_KEY=your_whois_api_key
 ```
 
 ## Environment Variables
 
-Edge Functions require these env vars (auto-available in Supabase):
-- `SUPABASE_URL` - Your Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Service role key for DB access
+Edge Functions use these secrets (set via `supabase secrets set`):
+- `PROJECT_URL` - Your Supabase project URL (e.g. `https://<REF>.supabase.co`)
+- `SERVICE_ROLE_KEY` - Service role key for DB access
 
-Optional (for enhanced domain intel):
+> **Do NOT use `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`** — Supabase rejects
+> secret names prefixed with `SUPABASE_`.
+
+Optional:
 - `WHOIS_API_KEY` - WhoisXML API key for domain age lookups
+- `VERBOSE_LOGGING` - Set to `"true"` for detailed function logs
 
-## Request Headers
+## Authentication & Request Headers
 
 All endpoints expect:
 ```
+Authorization: Bearer <LEGACY_ANON_JWT>
 X-Device-Id: <device-uuid>
 Content-Type: application/json
 ```
+
+> **Important:** The `Authorization` Bearer token must be the **Legacy anon (public) JWT**
+> (starts with `eyJhbGci...`). The newer publishable key (`sb_publishable_...`) is **not** a
+> JWT and will be rejected by `verify_jwt`-enabled functions.
 
 ## Response Types
 
@@ -150,25 +161,50 @@ Tables created:
 - `scan_with_evidence` - View joining results + evidence
 - `report_aggregates` - View with report counts per URL/domain
 
+## Health Checks
+
+Every function exposes a `GET ?health` endpoint:
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/content-scan?health"
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-evidence?health"
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-result?health"
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-history?health"
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/report-scan?health"
+```
+
+Response:
+```json
+{
+  "status": "ok",
+  "function": "<name>",
+  "secrets": { "PROJECT_URL": true, "SERVICE_ROLE_KEY": true },
+  "timestamp": "2024-02-03T12:00:00.000Z"
+}
+```
+
 ## Testing
 
 ```bash
 # Test content-scan
 curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/content-scan \
+  -H "Authorization: Bearer eyJhbGci...YOUR_LEGACY_ANON_JWT" \
   -H "Content-Type: application/json" \
   -H "X-Device-Id: test-device" \
   -d '{"url": "https://example.com"}'
 
 # Test scan-evidence
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-evidence?scanId=<SCAN_ID>" \
+  -H "Authorization: Bearer eyJhbGci...YOUR_LEGACY_ANON_JWT" \
   -H "X-Device-Id: test-device"
 
 # Test scan-history
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-history?limit=50" \
+  -H "Authorization: Bearer eyJhbGci...YOUR_LEGACY_ANON_JWT" \
   -H "X-Device-Id: test-device"
 
 # Test report-scan
 curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/report-scan \
+  -H "Authorization: Bearer eyJhbGci...YOUR_LEGACY_ANON_JWT" \
   -H "Content-Type: application/json" \
   -H "X-Device-Id: test-device" \
   -d '{"url": "https://suspicious-site.com", "report_type": "scam"}'
