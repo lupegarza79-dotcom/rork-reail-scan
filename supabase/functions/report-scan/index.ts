@@ -63,8 +63,8 @@ serve(async (req: Request) => {
     
     console.log("[report-scan] New report:", body.url, body.report_type, "device:", deviceId);
     
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseUrl = Deno.env.get("PROJECT_URL")!;
+    const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
     const domain = extractDomain(body.url);
