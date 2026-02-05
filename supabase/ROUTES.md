@@ -51,16 +51,19 @@ Optional:
 
 ## Authentication & Request Headers
 
-All endpoints expect:
+All endpoints expect **both** auth headers plus device ID:
 ```
 Authorization: Bearer <LEGACY_ANON_JWT>
+apikey: <LEGACY_ANON_JWT>
 X-Device-Id: <device-uuid>
 Content-Type: application/json
 ```
 
-> **Important:** The `Authorization` Bearer token must be the **Legacy anon (public) JWT**
-> (starts with `eyJhbGci...`). The newer publishable key (`sb_publishable_...`) is **not** a
-> JWT and will be rejected by `verify_jwt`-enabled functions.
+> **Important:** Use the **Legacy anon (public) JWT** (starts with `eyJhbGci...`) for
+> **both** `Authorization` and `apikey` headers. The newer publishable key
+> (`sb_publishable_...`) is **not** a JWT and will be rejected by Supabase's
+> `verify_jwt` gateway. You can find the legacy key in your Supabase dashboard
+> under **Settings → API → Project API keys → anon / public**.
 
 ## Response Types
 
@@ -208,6 +211,19 @@ curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/report-scan \
   -H "Content-Type: application/json" \
   -H "X-Device-Id: test-device" \
   -d '{"url": "https://suspicious-site.com", "report_type": "scam"}'
+```
+
+## Automated Test Script
+
+A PowerShell test script is available at `scripts/tests.ps1`. It runs health checks,
+a full scan, evidence retrieval, and a report submission.
+
+```powershell
+$env:SUPABASE_PROJECT_URL = "https://<REF>.supabase.co"
+$env:SUPABASE_ANON_KEY    = "eyJhbGci..."   # legacy anon JWT
+$env:FUNCTIONS_BASE_URL   = "https://<REF>.supabase.co/functions/v1"
+
+pwsh scripts/tests.ps1
 ```
 
 ### GET /scan/history?limit=100&offset=0
