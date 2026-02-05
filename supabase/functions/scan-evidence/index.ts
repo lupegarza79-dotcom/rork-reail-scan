@@ -51,16 +51,23 @@ serve(async (req: Request) => {
     
     if (scanError || !scan) {
       console.log("[scan-evidence] Scan not found:", scanId);
-      return new Response(JSON.stringify({ error: "Scan not found" }), {
-        status: 404,
+      return new Response(JSON.stringify({ evidence: [] }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     
-    // Fetch evidence for this scan
+    if (scan.device_id !== deviceId) {
+      console.log("[scan-evidence] Device mismatch:", deviceId, "!=", scan.device_id);
+      return new Response(JSON.stringify({ evidence: [] }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
     const { data: evidenceRows, error: evidenceError } = await supabase
       .from("scan_evidence")
-      .select("*")
+      .select("provider, card_title, card_status, card_payload, created_at")
       .eq("scan_id", scanId)
       .order("created_at", { ascending: true });
     

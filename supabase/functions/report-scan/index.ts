@@ -102,14 +102,15 @@ serve(async (req: Request) => {
     
     if (reportError) {
       console.error("[report-scan] DB insert error:", JSON.stringify(reportError, null, 2));
+      const isTableMissing = reportError.code === '42P01' || reportError.message?.includes('relation') && reportError.message?.includes('does not exist');
       return new Response(JSON.stringify({
-        error: "Failed to insert report",
+        error: isTableMissing ? "Table scan_reports does not exist. Please apply migration 20240204_scan_reports.sql" : "Failed to insert report",
         db_error: reportError.message,
         db_code: reportError.code,
         db_details: reportError.details,
         db_hint: reportError.hint,
       }), {
-        status: 500,
+        status: isTableMissing ? 503 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -126,7 +127,7 @@ serve(async (req: Request) => {
       message: "Report submitted successfully",
       total_reports: totalReports || 1,
     }), {
-      status: 201,
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
     

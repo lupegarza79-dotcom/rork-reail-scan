@@ -67,12 +67,12 @@ serve(async (req: Request) => {
     const evidence = (evidenceRows || []).map(row => ({
       id: `${row.provider}-${row.id}`,
       provider: row.provider,
-      providerLabel: row.provider_label,
-      status: row.status,
-      summary: row.summary,
-      weight: row.weight,
-      scoreImpact: row.score_impact,
-      payload: row.payload || {},
+      providerLabel: row.card_title,
+      status: row.card_status,
+      summary: row.card_payload?.summary ?? '',
+      weight: row.card_payload?.weight ?? 25,
+      scoreImpact: row.card_payload?.score_impact ?? 0,
+      payload: row.card_payload ?? {},
       timestamp: new Date(row.created_at).getTime(),
     }));
     
