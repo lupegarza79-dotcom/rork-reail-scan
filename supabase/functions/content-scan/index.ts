@@ -721,9 +721,33 @@ async function analyzePatternMatch(url: string, supabaseUrl: string, serviceKey:
   };
 }
 
+const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
+
+function log(...args: unknown[]) {
+  if (VERBOSE) console.log("[content-scan][verbose]", ...args);
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    if (url.searchParams.get("health") !== null) {
+      const hasProjectUrl = !!Deno.env.get("PROJECT_URL");
+      const hasServiceKey = !!Deno.env.get("SERVICE_ROLE_KEY");
+      return new Response(JSON.stringify({
+        status: "ok",
+        function: "content-scan",
+        secrets: { PROJECT_URL: hasProjectUrl, SERVICE_ROLE_KEY: hasServiceKey },
+        verbose: VERBOSE,
+        timestamp: new Date().toISOString(),
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
   
   if (req.method !== "POST") {
@@ -843,7 +867,14 @@ serve(async (req: Request) => {
     
   } catch (error) {
     console.error("[content-scan] Error:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
+    const errObj = error instanceof Error ? error : new Error(String(error));
+    return new Response(JSON.stringify({
+      error: "Internal server error",
+      message: errObj.message,
+      code: (error as any)?.code ?? null,
+      details: (error as any)?.details ?? null,
+      hint: (error as any)?.hint ?? null,
+    }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
