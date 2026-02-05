@@ -71,10 +71,10 @@ serve(async (req: Request) => {
     
     const evidence = (evidenceRows || []).map(row => ({
       provider: row.provider,
-      status: row.status,
-      summary: row.summary,
-      weight: row.weight,
-      payload: row.payload || {},
+      status: row.card_status,
+      summary: row.card_payload?.summary ?? '',
+      weight: row.card_payload?.weight ?? 25,
+      payload: row.card_payload ?? {},
     }));
     
     console.log("[scan-evidence] Found", evidence.length, "evidence items");

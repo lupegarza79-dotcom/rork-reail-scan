@@ -801,12 +801,14 @@ serve(async (req: Request) => {
     const evidenceRows = evidence.map(e => ({
       scan_id: scanResult.id,
       provider: e.provider,
-      provider_label: e.provider_label,
-      status: e.status,
-      summary: e.summary,
-      weight: e.weight,
-      score_impact: e.score_impact,
-      payload: e.payload,
+      card_title: e.provider_label,
+      card_status: e.status,
+      card_payload: {
+        summary: e.summary,
+        weight: e.weight,
+        score_impact: e.score_impact,
+        ...e.payload,
+      },
     }));
     
     const { error: evidenceError } = await supabase

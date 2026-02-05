@@ -101,8 +101,17 @@ serve(async (req: Request) => {
       .single();
     
     if (reportError) {
-      console.error("[report-scan] DB insert error:", reportError);
-      throw reportError;
+      console.error("[report-scan] DB insert error:", JSON.stringify(reportError, null, 2));
+      return new Response(JSON.stringify({
+        error: "Failed to insert report",
+        db_error: reportError.message,
+        db_code: reportError.code,
+        db_details: reportError.details,
+        db_hint: reportError.hint,
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     
     const { count: totalReports } = await supabase
