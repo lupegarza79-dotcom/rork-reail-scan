@@ -257,6 +257,9 @@ export default function ResultScreen() {
           domain: remote.domain,
           title: remote.title,
           reasons: remote.reasons,
+          evidence: remote.evidence,
+          summary: remote.summary,
+          scoreBreakdown: remote.scoreBreakdown,
         };
 
         setCached(normalized);

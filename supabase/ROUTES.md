@@ -17,6 +17,7 @@ export const BASE_URL =
 | `/scan/content` | `content-scan` | POST | Full scan with Link Intel + Domain Intel |
 | `/scan/evidence` | `scan-evidence` | GET | Fetch evidence by scanId |
 | `/scan/result` | `scan-result` | GET | Fetch full scan result with evidence |
+| `/scan/history` | `scan-history` | GET | Fetch scan history by device_id |
 
 ## Deployment Commands
 
@@ -25,6 +26,7 @@ export const BASE_URL =
 supabase functions deploy content-scan
 supabase functions deploy scan-evidence
 supabase functions deploy scan-result
+supabase functions deploy scan-history
 
 # Set secrets (required for content-scan)
 supabase secrets set WHOIS_API_KEY=your_whois_api_key
@@ -132,4 +134,30 @@ curl -X POST https://<PROJECT_REF>.supabase.co/functions/v1/content-scan \
 # Test scan-evidence
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-evidence?scanId=<SCAN_ID>" \
   -H "X-Device-Id: test-device"
+
+# Test scan-history
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/scan-history?limit=50" \
+  -H "X-Device-Id: test-device"
+```
+
+### GET /scan/history?limit=100&offset=0
+Response (`ScanHistoryResponse`):
+```json
+{
+  "items": [
+    {
+      "scanId": "uuid",
+      "url": "string",
+      "domain": "string",
+      "title": "string",
+      "badge": "VERIFIED",
+      "score": 85,
+      "summary": "string",
+      "createdAt": "2024-02-03T12:00:00Z"
+    }
+  ],
+  "total": 42,
+  "limit": 100,
+  "offset": 0
+}
 ```

@@ -9,16 +9,19 @@ import {
   Alert,
   Platform,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Search, Trash2, Share2, Clock, History, ChevronRight, RefreshCw } from "lucide-react-native";
+import { Search, Trash2, Share2, Clock, History, ChevronRight, RefreshCw, Cloud, CloudOff } from "lucide-react-native";
 import {
   loadHistory,
   clearHistory,
+  saveToHistory,
   type Badge,
   type ScanHistoryItem,
 } from "../../utils/historyStore";
+import { fetchScanHistory, type ScanHistoryItem as BackendHistoryItem } from "../../utils/api";
 import BadgePill, { getBadgeLabel, getBadgeColor } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
 
@@ -51,18 +54,62 @@ export default function HistoryScreen() {
   const [items, setItems] = useState<ScanHistoryItem[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<FilterValue>("ALL");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSynced, setIsSynced] = useState(false);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+
+  const syncWithBackend = useCallback(async () => {
+    setIsLoading(true);
+    setLastSyncError(null);
+    
+    try {
+      const backendHistory = await fetchScanHistory({ limit: 200 });
+      
+      if (backendHistory && backendHistory.items.length > 0) {
+        const backendItems: ScanHistoryItem[] = backendHistory.items.map((item: BackendHistoryItem) => ({
+          scanId: item.scanId,
+          badge: item.badge as Badge,
+          score: item.score,
+          domain: item.domain,
+          title: item.title,
+          url: item.url,
+          createdAt: item.createdAt,
+        }));
+        
+        const localHistory = await loadHistory();
+        const backendIds = new Set(backendItems.map(i => i.scanId));
+        const localOnly = localHistory.filter(i => i.scanId && !backendIds.has(i.scanId));
+        
+        const merged = [...backendItems, ...localOnly]
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+          .slice(0, 200);
+        
+        setItems(merged);
+        setIsSynced(true);
+        console.log("[History] Synced:", backendItems.length, "from backend,", localOnly.length, "local-only");
+        return;
+      }
+    } catch (err) {
+      console.log("[History] Backend sync failed:", err);
+      setLastSyncError("Could not sync with cloud");
+    }
+    
+    const localHistory = await loadHistory();
+    setItems(localHistory);
+    setIsLoading(false);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
-        const history = await loadHistory();
-        if (active) setItems(history);
+        await syncWithBackend();
+        if (active) setIsLoading(false);
       })();
       return () => {
         active = false;
       };
-    }, [])
+    }, [syncWithBackend])
   );
 
   const filtered = useMemo(() => {
@@ -141,17 +188,22 @@ export default function HistoryScreen() {
   };
 
   const onClear = () => {
-    Alert.alert("Clear history?", "This will delete all saved scans.", [
+    Alert.alert("Clear local history?", "This will delete locally saved scans. Cloud history will remain.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Clear",
         style: "destructive",
         onPress: async () => {
           await clearHistory();
-          setItems([]);
+          await syncWithBackend();
         },
       },
     ]);
+  };
+
+  const onRefresh = async () => {
+    await syncWithBackend();
+    setIsLoading(false);
   };
 
   const filterOptions: { label: string; value: FilterValue; badge?: Badge; count: number }[] = [
@@ -220,13 +272,31 @@ export default function HistoryScreen() {
               <Text style={styles.countBadgeText}>{stats.total}</Text>
             </View>
           )}
+          {isSynced ? (
+            <Cloud size={14} color={Colors.verified} strokeWidth={2} />
+          ) : lastSyncError ? (
+            <CloudOff size={14} color={Colors.textTertiary} strokeWidth={2} />
+          ) : null}
         </View>
-        <Pressable 
-          onPress={onClear} 
-          style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
-        >
-          <Trash2 size={18} color={Colors.textSecondary} strokeWidth={2} />
-        </Pressable>
+        <View style={styles.topActions}>
+          <Pressable 
+            onPress={onRefresh} 
+            style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color={Colors.textSecondary} />
+            ) : (
+              <RefreshCw size={18} color={Colors.textSecondary} strokeWidth={2} />
+            )}
+          </Pressable>
+          <Pressable 
+            onPress={onClear} 
+            style={({ pressed }) => [styles.topBtn, pressed && styles.topBtnPressed]}
+          >
+            <Trash2 size={18} color={Colors.textSecondary} strokeWidth={2} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.contentPadding}>
@@ -356,6 +426,11 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
     fontWeight: "700" as const,
+  },
+  topActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   topBtn: {
     width: 40,

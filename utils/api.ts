@@ -277,3 +277,45 @@ export async function fetchScanWithEvidence(scanId: string): Promise<BackendScan
     return null;
   }
 }
+
+export interface ScanHistoryItem {
+  scanId: string;
+  url?: string;
+  domain: string;
+  title?: string;
+  badge: BadgeType;
+  score: number;
+  summary?: string;
+  createdAt: string;
+}
+
+export interface ScanHistoryResponse {
+  items: ScanHistoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function fetchScanHistory(options?: { limit?: number; offset?: number }): Promise<ScanHistoryResponse | null> {
+  const limit = options?.limit ?? 100;
+  const offset = options?.offset ?? 0;
+
+  try {
+    const resp = await fetch(`${BASE_URL}/scan/history?limit=${limit}&offset=${offset}`, {
+      method: "GET",
+      headers: await headers(),
+    });
+
+    if (!resp.ok) {
+      console.log("[API] fetchScanHistory failed:", resp.status);
+      return null;
+    }
+
+    const data = await resp.json() as ScanHistoryResponse;
+    console.log("[API] fetchScanHistory:", data.items.length, "items");
+    return data;
+  } catch (err) {
+    console.log("[API] fetchScanHistory error:", err);
+    return null;
+  }
+}
