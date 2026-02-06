@@ -4,8 +4,8 @@ param()
 $ErrorActionPreference = "Stop"
 
 # --- Required env vars ---
-$projectUrl   = $env:SUPABASE_PROJECT_URL
-$anonKey      = $env:SUPABASE_ANON_KEY
+$projectUrl    = $env:SUPABASE_PROJECT_URL
+$anonKey       = $env:SUPABASE_ANON_KEY
 $functionsBase = $env:FUNCTIONS_BASE_URL
 
 if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL"; exit 1 }
@@ -20,7 +20,7 @@ $functionsBase = $functionsBase.TrimEnd("/")
 $deviceId = [guid]::NewGuid().ToString()
 
 Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  Supabase Edge Functions Test Suite" -ForegroundColor Cyan
+Write-Host "  REAiL Edge Functions Test Suite" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Functions Base : $functionsBase"
 Write-Host "Device ID      : $deviceId"
@@ -42,15 +42,17 @@ function Invoke-Step {
         [string]$Method,
         [string]$Uri,
         [string]$Body,
+        [hashtable]$OverrideHeaders,
         [scriptblock]$Assert
     )
 
     Write-Host "`n--- $Name ---" -ForegroundColor Yellow
     try {
+        $h = if ($OverrideHeaders) { $OverrideHeaders } else { $headers }
         $params = @{
             Uri     = $Uri
             Method  = $Method
-            Headers = $headers
+            Headers = $h
             UseBasicParsing = $true
         }
         if ($Body) { $params["Body"] = $Body }
@@ -79,12 +81,12 @@ function Invoke-Step {
     }
 }
 
-# 1-4: Health checks
-@("content-scan", "scan-evidence", "scan-history", "report-scan") | ForEach-Object {
+# 1-6: Health checks
+@("content-scan", "scan-evidence", "scan-history", "scan-result", "report-scan", "quick-scan") | ForEach-Object {
     Invoke-Step -Name "Health: $_" -Method "GET" -Uri "$functionsBase/$($_)?health"
 }
 
-# 5: POST content-scan
+# 7: POST content-scan
 Invoke-Step -Name "POST content-scan" -Method "POST" `
     -Uri "$functionsBase/content-scan" `
     -Body '{"url":"https://example.com"}' `
@@ -93,9 +95,10 @@ Invoke-Step -Name "POST content-scan" -Method "POST" `
         if (-not $json.scan_id) { throw "Missing scan_id in response" }
         $script:scanId = $json.scan_id
         Write-Host "Captured scan_id: $script:scanId" -ForegroundColor Cyan
+        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
     }
 
-# 6: GET scan-evidence
+# 8: GET scan-evidence
 if ($scanId) {
     Invoke-Step -Name "GET scan-evidence" -Method "GET" `
         -Uri "$functionsBase/scan-evidence?scanId=$scanId" `
@@ -105,13 +108,16 @@ if ($scanId) {
                 throw "Evidence array is empty or missing"
             }
             Write-Host "Evidence count: $($json.evidence.Count)" -ForegroundColor Cyan
+            foreach ($e in $json.evidence) {
+                Write-Host "  [$($e.status)] $($e.provider): $($e.summary)" -ForegroundColor DarkCyan
+            }
         }
 } else {
     Write-Host "`n--- GET scan-evidence --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
     $results["GET scan-evidence"] = "SKIP"
 }
 
-# 7: POST report-scan (different device)
+# 9: POST report-scan (different device to avoid rate limit)
 $reportDeviceId = [guid]::NewGuid().ToString()
 $reportHeaders = @{
     "Authorization" = "Bearer $anonKey"
@@ -128,24 +134,27 @@ if ($scanId) {
         description = "Automated test report"
     } | ConvertTo-Json
 
-    Write-Host "`n--- POST report-scan ---" -ForegroundColor Yellow
-    try {
-        $resp = Invoke-WebRequest -Uri "$functionsBase/report-scan" -Method POST `
-            -Headers $reportHeaders -Body $reportBody -UseBasicParsing
-        $json = $resp.Content | ConvertFrom-Json
-        Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Green
-        Write-Host "Body  : $($resp.Content.Substring(0, [Math]::Min(500, $resp.Content.Length)))"
-        if (-not $json.report_id) { throw "Missing report_id" }
-        Write-Host "report_id: $($json.report_id)" -ForegroundColor Cyan
-        $results["POST report-scan"] = "PASS"
-    } catch {
-        Write-Host "FAILED: $_" -ForegroundColor Red
-        $results["POST report-scan"] = "FAIL"
-    }
+    Invoke-Step -Name "POST report-scan" -Method "POST" `
+        -Uri "$functionsBase/report-scan" `
+        -Body $reportBody `
+        -OverrideHeaders $reportHeaders `
+        -Assert {
+            param($json)
+            if (-not $json.report_id) { throw "Missing report_id" }
+            Write-Host "report_id: $($json.report_id)  total: $($json.total_reports)" -ForegroundColor Cyan
+        }
 } else {
     Write-Host "`n--- POST report-scan --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
     $results["POST report-scan"] = "SKIP"
 }
+
+# 10: GET quick-scan
+Invoke-Step -Name "GET quick-scan" -Method "GET" `
+    -Uri "$functionsBase/quick-scan?url=https://example.com" `
+    -Assert {
+        param($json)
+        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)  Flags: $($json.top_red_flags.Count)" -ForegroundColor Cyan
+    }
 
 # Summary
 Write-Host "`n========================================" -ForegroundColor Cyan
