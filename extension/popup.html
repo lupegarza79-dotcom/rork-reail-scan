@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 16px;
+    }
+    h1 { font-size: 16px; margin-bottom: 12px; color: #fff; }
+    .badge-display {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+    }
+    .badge-display.verified { background: #16a34a22; border: 1px solid #16a34a; }
+    .badge-display.high_risk { background: #dc262622; border: 1px solid #dc2626; }
+    .badge-display.unverified { background: #d9770622; border: 1px solid #d97706; }
+    .badge-display.unknown { background: #6b728022; border: 1px solid #6b7280; }
+    .badge-icon { font-size: 28px; }
+    .badge-info { flex: 1; }
+    .badge-label { font-weight: 700; font-size: 14px; }
+    .badge-score { font-size: 12px; opacity: 0.8; }
+    .flags { margin-bottom: 12px; }
+    .flags li {
+      list-style: none;
+      padding: 4px 8px;
+      margin-bottom: 4px;
+      background: #1e293b;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .config-section { margin-top: 8px; }
+    .config-section label {
+      display: block;
+      font-size: 11px;
+      margin-bottom: 4px;
+      color: #94a3b8;
+    }
+    .config-section input {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 8px;
+      background: #3b82f6;
+      color: #fff;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { background: #2563eb; }
+    .status { font-size: 11px; color: #64748b; margin-top: 6px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>🔍 REAiL Verify</h1>
+  <div id="result">
+    <div class="badge-display unknown">
+      <span class="badge-icon">⏳</span>
+      <div class="badge-info">
+        <div class="badge-label">Checking…</div>
+        <div class="badge-score"></div>
+      </div>
+    </div>
+  </div>
+  <ul id="flags" class="flags"></ul>
+
+  <details>
+    <summary style="font-size:12px;cursor:pointer;color:#94a3b8;margin-bottom:8px;">⚙️ Settings</summary>
+    <div class="config-section">
+      <label>API Base URL</label>
+      <input id="apiBase" placeholder="https://xyz.supabase.co/functions/v1" />
+      <label>Anon Key (Legacy JWT)</label>
+      <input id="anonKey" placeholder="eyJhbGci..." />
+      <button id="save">Save</button>
+      <div id="saveStatus" class="status"></div>
+    </div>
+  </details>
+
+  <script src="popup.js"></script>
+</body>
+</html>
