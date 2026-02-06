@@ -1,3 +1,5 @@
+/// <reference path="../deno.d.ts" />
+// @ts-nocheck
 // eslint-disable-next-line import/no-unresolved
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // eslint-disable-next-line import/no-unresolved
