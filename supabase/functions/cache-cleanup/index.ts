@@ -1,4 +1,4 @@
-<// @ts-nocheck
+// @ts-nocheck
 /**
  * Supabase Edge Function: cache-cleanup
  *
