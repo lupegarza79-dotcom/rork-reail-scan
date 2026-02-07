@@ -9,8 +9,10 @@
  * POST => ejecuta cleanup_expired_cache()
  */
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+const _server = "https://deno.land/std@0.177.0/http/server.ts";
+const _supa = "https://esm.sh/@supabase/supabase-js@2.39.0";
+const { serve } = await import(_server);
+const { createClient } = await import(_supa) as any;
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
