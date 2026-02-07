@@ -12,6 +12,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+const ENDPOINT = "scan-history";
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
 serve(async (req: Request) => {
@@ -23,16 +24,23 @@ serve(async (req: Request) => {
 
   if (req.method === "GET" && url.searchParams.get("health") !== null) {
     return new Response(JSON.stringify({
-      status: "ok",
-      function: "scan-history",
-      secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
-      verbose: VERBOSE,
+      ok: true,
+      endpoint: ENDPOINT,
+      details: {
+        secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
+        verbose: VERBOSE,
+      },
       timestamp: new Date().toISOString(),
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   if (req.method !== "GET") {
-    return new Response(JSON.stringify({ message: "Method not allowed", code: "METHOD_NOT_ALLOWED", details: null, hint: null }), {
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "method_not_allowed",
+      message: "Method not allowed",
+      endpoint: ENDPOINT,
+    }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -43,7 +51,12 @@ serve(async (req: Request) => {
     const offset = parseInt(url.searchParams.get("offset") || "0", 10);
 
     if (!deviceId) {
-      return new Response(JSON.stringify({ message: "x-device-id header is required", code: "INVALID_INPUT", details: null, hint: null }), {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "invalid_input",
+        message: "x-device-id header is required",
+        endpoint: ENDPOINT,
+      }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -79,17 +92,17 @@ serve(async (req: Request) => {
 
     console.log("[scan-history] Found", items.length, "scans");
 
-    return new Response(JSON.stringify({ items, total: count || items.length, limit, offset }), {
+    return new Response(JSON.stringify({ ok: true, items, total: count || items.length, limit, offset }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("[scan-history] Error:", error);
     const errObj = error instanceof Error ? error : new Error(String(error));
     return new Response(JSON.stringify({
+      ok: false,
+      error_code: (error as any)?.code ?? "internal_error",
       message: errObj.message,
-      code: (error as any)?.code ?? "INTERNAL_ERROR",
-      details: (error as any)?.details ?? null,
-      hint: (error as any)?.hint ?? null,
+      endpoint: ENDPOINT,
     }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
