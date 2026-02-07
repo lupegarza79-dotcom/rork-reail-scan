@@ -3,11 +3,9 @@ import {
   View,
   Text,
   Pressable,
-  Modal,
   ScrollView,
   Share,
   Platform,
-  StyleSheet,
   Alert,
   Animated,
 } from "react-native";
@@ -19,7 +17,6 @@ import * as WebBrowser from "expo-web-browser";
 import { 
   ArrowLeft, 
   Share2, 
-  ExternalLink, 
   ChevronDown, 
   ChevronRight,
   Shield,
@@ -28,7 +25,6 @@ import {
   ShieldX,
   Info,
   Image as ImageIcon,
-  X,
   Bot,
   User,
   AlertTriangle,
@@ -39,10 +35,6 @@ import {
   HelpCircle,
   Eye,
   Plus,
-  Globe,
-  Link2,
-  Users,
-  Fingerprint,
   Compass,
   Copy,
   Video,
@@ -53,7 +45,7 @@ import {
   Zap,
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
-import { fetchScanWithEvidence } from "../utils/api";
+import { fetchScanWithEvidence, reportScan } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
 import BadgePill, { getBadgeColor, getBadgeBg, getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
@@ -67,7 +59,9 @@ import {
   buildEvidenceDetails,
   calculateScoreFromEvidence,
 } from "@/utils/evidenceEngine";
-import type { EvidenceCard as EvidenceCardType, EvidenceStatus as EvidenceStatusType, ScoreAdjustment } from "@/types/scan";
+import type { EvidenceCard as EvidenceCardType, EvidenceStatus as EvidenceStatusType, ScoreAdjustment, ReportType } from "@/types/scan";
+import { styles } from "@/components/result/resultStyles";
+import { DisclaimerModal, ScoreTooltipModal, SafeViewModal, ReportModal } from "@/components/result/ResultModals";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -88,7 +82,6 @@ type ContentMetrics = {
 };
 
 type EvidenceStatus = EvidenceStatusType;
-
 type EvidenceCard = EvidenceCardType;
 
 type ScanResult = {
@@ -123,8 +116,6 @@ type Params = {
   scanId?: string;
   payload?: string;
 };
-
-
 
 const REASON_ICONS: Record<ReasonKey, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
   A: Video,
@@ -192,6 +183,11 @@ export default function ResultScreen() {
     A: false, B: false, C: false, D: false, E: false, F: false,
   });
   const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({});
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportType, setReportType] = useState<ReportType>("scam");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -451,6 +447,33 @@ export default function ResultScreen() {
 
   const onAddToWatchlist = () => {
     router.push("/watchlist");
+  };
+
+  const onSubmitReport = async () => {
+    if (!result.url && !domain) return;
+    setReportSubmitting(true);
+    try {
+      const resp = await reportScan({
+        scan_id: result.scanId,
+        url: result.url || `https://${domain}`,
+        report_type: reportType,
+        description: reportDescription.trim() || undefined,
+      });
+      if (resp) {
+        setReportSuccess(true);
+        setTimeout(() => {
+          setReportModalOpen(false);
+          setReportSuccess(false);
+          setReportDescription("");
+        }, 1500);
+      } else {
+        Alert.alert("Error", "Could not submit report. Please try again.");
+      }
+    } catch {
+      Alert.alert("Error", "Could not submit report. Please try again.");
+    } finally {
+      setReportSubmitting(false);
+    }
   };
 
   const toggleExpand = (k: ReasonKey) => {
@@ -978,6 +1001,17 @@ export default function ResultScreen() {
           </View>
         </View>
 
+        <View style={styles.reportSection}>
+          <Pressable
+            onPress={() => setReportModalOpen(true)}
+            style={({ pressed }) => [styles.reportBtn, pressed && styles.reportBtnPressed]}
+          >
+            <AlertTriangle size={16} color={Colors.unverified} strokeWidth={2} />
+            <Text style={styles.reportBtnText}>Report this URL</Text>
+          </Pressable>
+          <Text style={styles.reportHint}>Help the community by flagging suspicious content</Text>
+        </View>
+
         <Pressable 
           onPress={() => router.replace("/")} 
           style={({ pressed }) => [styles.newScanBtn, pressed && styles.newScanBtnPressed]}
@@ -989,1030 +1023,28 @@ export default function ResultScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      <Modal
-        visible={disclaimerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDisclaimerOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setDisclaimerOpen(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Verification Disclaimer</Text>
-              <Pressable onPress={() => setDisclaimerOpen(false)} style={styles.modalCloseIcon}>
-                <X size={20} color={Colors.textSecondary} strokeWidth={2} />
-              </Pressable>
-            </View>
-            <View style={styles.modalBullets}>
-              <View style={styles.modalBulletRow}>
-                <Globe size={16} color={Colors.accent} strokeWidth={2} />
-                <Text style={styles.modalBulletText}>
-                  REAiL analyzes public signals and patterns—it does not access private data.
-                </Text>
-              </View>
-              <View style={styles.modalBulletRow}>
-                <Fingerprint size={16} color={Colors.accent} strokeWidth={2} />
-                <Text style={styles.modalBulletText}>
-                  Results are probabilistic, not definitive proof of authenticity or fraud.
-                </Text>
-              </View>
-              <View style={styles.modalBulletRow}>
-                <Users size={16} color={Colors.accent} strokeWidth={2} />
-                <Text style={styles.modalBulletText}>
-                  Always cross-check with other sources and use your own judgment.
-                </Text>
-              </View>
-            </View>
-            <Pressable 
-              style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.modalCloseBtnPressed]} 
-              onPress={() => setDisclaimerOpen(false)}
-            >
-              <Text style={styles.modalCloseText}>Got it</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={scoreTooltipOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setScoreTooltipOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setScoreTooltipOpen(false)}>
-          <Pressable style={styles.tooltipCard} onPress={() => {}}>
-            <View style={styles.tooltipHeader}>
-              <Info size={18} color={Colors.accent} strokeWidth={2} />
-              <Text style={styles.tooltipTitle}>Score ≠ Truth</Text>
-            </View>
-            <Text style={styles.tooltipText}>
-              The risk score reflects detected patterns and signals. A high score means fewer risk signals were found—not that the content is true or safe. Always use context and judgment.
-            </Text>
-            <Pressable 
-              style={({ pressed }) => [styles.tooltipBtn, pressed && styles.tooltipBtnPressed]} 
-              onPress={() => setScoreTooltipOpen(false)}
-            >
-              <Text style={styles.tooltipBtnText}>Understood</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
+      <DisclaimerModal visible={disclaimerOpen} onClose={() => setDisclaimerOpen(false)} />
+      <ScoreTooltipModal visible={scoreTooltipOpen} onClose={() => setScoreTooltipOpen(false)} />
+      <SafeViewModal
         visible={safeViewOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSafeViewOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setSafeViewOpen(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Safe View Warning</Text>
-              <Pressable onPress={() => setSafeViewOpen(false)} style={styles.modalCloseIcon}>
-                <X size={20} color={Colors.textSecondary} strokeWidth={2} />
-              </Pressable>
-            </View>
-            <View style={styles.safeViewContent}>
-              <View style={styles.safeViewDomainRow}>
-                <Link2 size={18} color={Colors.textSecondary} strokeWidth={2} />
-                <Text style={styles.safeViewDomain} numberOfLines={1}>{domain}</Text>
-              </View>
-              <View style={styles.safeViewBadgeRow}>
-                <BadgePill badge={badge} size="small" />
-                <Text style={styles.safeViewScore}>Risk Score: {score}/100</Text>
-              </View>
-              <Text style={styles.safeViewWarning}>
-                You are about to open this link in your browser. REAiL cannot guarantee the safety of external content.
-              </Text>
-            </View>
-            <View style={styles.safeViewActions}>
-              <Pressable 
-                style={({ pressed }) => [styles.safeViewCancelBtn, pressed && styles.safeViewCancelBtnPressed]} 
-                onPress={() => setSafeViewOpen(false)}
-              >
-                <Text style={styles.safeViewCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable 
-                style={({ pressed }) => [styles.safeViewConfirmBtn, pressed && styles.safeViewConfirmBtnPressed]} 
-                onPress={onConfirmOpenLink}
-              >
-                <ExternalLink size={16} color="white" strokeWidth={2} />
-                <Text style={styles.safeViewConfirmText}>Continue</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setSafeViewOpen(false)}
+        onConfirm={onConfirmOpenLink}
+        domain={domain}
+        badge={badge}
+        score={score}
+      />
+      <ReportModal
+        visible={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        domain={domain}
+        reportType={reportType}
+        setReportType={setReportType}
+        reportDescription={reportDescription}
+        setReportDescription={setReportDescription}
+        reportSubmitting={reportSubmitting}
+        reportSuccess={reportSuccess}
+        onSubmit={onSubmitReport}
+      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  safeArea: {
-    backgroundColor: Colors.background,
-  },
-  header: {
-    height: 56,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundSecondary,
-  },
-  headerBtnPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  headerTitle: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "600" as const,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  mainCard: {
-    borderRadius: 20,
-    padding: 24,
-    backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: "center",
-  },
-  badgeSection: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  badgeIconContainer: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-    borderWidth: 2,
-  },
-  domainText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    marginTop: 10,
-  },
-  scoreSection: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    marginBottom: 16,
-  },
-  scoreCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: Colors.border,
-    position: "relative",
-  },
-  scoreTooltipIcon: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: Colors.backgroundSecondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scoreValue: {
-    fontSize: 28,
-    fontWeight: "800" as const,
-  },
-  scoreLabel: {
-    fontSize: 10,
-    color: Colors.textTertiary,
-    fontWeight: "600" as const,
-  },
-  scoreBarContainer: {
-    flex: 1,
-  },
-  scoreBarTrack: {
-    height: 8,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  scoreBarFill: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  scoreLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 6,
-  },
-  scoreLabelText: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-  },
-  whyScoreBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundTertiary,
-    marginBottom: 12,
-  },
-  whyScoreBtnPressed: {
-    opacity: 0.7,
-  },
-  whyScoreText: {
-    color: Colors.accent,
-    fontSize: 13,
-    fontWeight: "600" as const,
-    flex: 1,
-  },
-  whyScoreContent: {
-    width: "100%",
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-    gap: 12,
-  },
-  whyScoreRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  whyScoreIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: `${Colors.accent}20`,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  whyScoreTextWrap: {
-    flex: 1,
-  },
-  whyScoreTitle: {
-    color: Colors.text,
-    fontSize: 13,
-    fontWeight: "600" as const,
-    marginBottom: 2,
-  },
-  whyScoreSummary: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  whyScoreBullet: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  heroSubtitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  heroSubtitle: {
-    color: Colors.textTertiary,
-    fontSize: 12,
-    fontWeight: "500" as const,
-  },
-  infoBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  infoBtnPressed: {
-    opacity: 0.7,
-  },
-  nbaSection: {
-    marginTop: 12,
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1.5,
-  },
-  nbaTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  nbaIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nbaTitle: {
-    color: Colors.text,
-    fontSize: 17,
-    fontWeight: "700" as const,
-  },
-  nbaMessage: {
-    fontSize: 15,
-    fontWeight: "700" as const,
-    marginBottom: 10,
-  },
-  nbaTips: {
-    marginBottom: 14,
-  },
-  nbaTip: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 22,
-  },
-  nbaActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  nbaBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    height: 44,
-    borderRadius: 12,
-  },
-  nbaBtnPrimary: {
-    backgroundColor: Colors.primary,
-  },
-  nbaBtnPrimaryPressed: {
-    backgroundColor: Colors.primaryDark,
-  },
-  nbaBtnPrimaryText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "700" as const,
-  },
-  nbaBtnSecondary: {
-    backgroundColor: Colors.backgroundTertiary,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  nbaBtnSecondaryPressed: {
-    backgroundColor: Colors.cardHighlight,
-  },
-  nbaBtnSecondaryText: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: "700" as const,
-  },
-  actionsCard: {
-    marginTop: 12,
-    gap: 10,
-  },
-  primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    height: 54,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-  },
-  primaryBtnPressed: {
-    backgroundColor: Colors.primaryDark,
-  },
-  primaryBtnText: {
-    color: "white",
-    fontWeight: "700" as const,
-    fontSize: 15,
-  },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  secondaryBtnPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  secondaryBtnText: {
-    color: "white",
-    fontWeight: "600" as const,
-    fontSize: 14,
-  },
-  evidenceSection: {
-    marginTop: 24,
-  },
-  evidenceTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  evidenceHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  evidenceHintText: {
-    color: Colors.textTertiary,
-    fontSize: 11,
-  },
-  sectionTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700" as const,
-  },
-  sectionSubtitle: {
-    color: Colors.textTertiary,
-    fontSize: 13,
-    marginBottom: 16,
-  },
-  evidenceSummaryCard: {
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  evidenceSummaryText: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  evidenceCard: {
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 10,
-    overflow: "hidden",
-  },
-  evidenceCardPending: {
-    opacity: 0.6,
-  },
-  evidenceCardPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  evidenceHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    padding: 14,
-    gap: 12,
-  },
-  evidenceIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  evidenceIconPending: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  evidenceContentWrapper: {
-    flex: 1,
-  },
-  evidenceProviderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 4,
-  },
-  evidenceProvider: {
-    color: "white",
-    fontWeight: "600" as const,
-    fontSize: 14,
-  },
-  evidenceProviderPending: {
-    color: Colors.textTertiary,
-  },
-  evidenceStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  evidenceStatusText: {
-    fontSize: 9,
-    fontWeight: "700" as const,
-    letterSpacing: 0.5,
-  },
-  evidenceSummary: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  evidenceSummaryPending: {
-    color: Colors.textTertiary,
-    fontStyle: "italic" as const,
-  },
-  evidencePayload: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  evidencePayloadTitle: {
-    color: Colors.textTertiary,
-    fontSize: 10,
-    fontWeight: "600" as const,
-    textTransform: "uppercase" as const,
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  evidencePayloadText: {
-    color: Colors.textSecondary,
-    fontSize: 11,
-    fontFamily: "monospace",
-    lineHeight: 16,
-  },
-  metricsSection: {
-    marginTop: 24,
-  },
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 4,
-  },
-  metricCard: {
-    width: "48%" as unknown as number,
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  metricHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 2,
-  },
-  metricLabel: {
-    color: Colors.textSecondary,
-    fontSize: 11,
-    fontWeight: "600" as const,
-  },
-  metricSubtitle: {
-    color: Colors.textTertiary,
-    fontSize: 9,
-    marginBottom: 6,
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: "800" as const,
-    marginBottom: 8,
-  },
-  metricBar: {
-    height: 4,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  metricBarFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  confidenceChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginTop: 8,
-  },
-  confidenceChipText: {
-    fontSize: 9,
-    fontWeight: "700" as const,
-    letterSpacing: 0.5,
-  },
-  reasonsSection: {
-    marginTop: 24,
-  },
-  reasonCard: {
-    borderRadius: 14,
-    backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 10,
-    overflow: "hidden",
-  },
-  reasonCardHighlighted: {
-    borderColor: `${Colors.accent}40`,
-  },
-  reasonCardPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  reasonHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    gap: 12,
-  },
-  reasonKeyBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  reasonKeyBadgeHighlighted: {
-    backgroundColor: `${Colors.accent}20`,
-  },
-  reasonContentWrapper: {
-    flex: 1,
-  },
-  reasonTitle: {
-    color: "white",
-    fontWeight: "600" as const,
-    fontSize: 14,
-    marginBottom: 2,
-  },
-  reasonSummary: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  reasonBody: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  reasonDetailsSection: {
-    marginTop: 10,
-  },
-  reasonBodyTitle: {
-    color: Colors.textSecondary,
-    fontWeight: "600" as const,
-    fontSize: 12,
-    marginBottom: 6,
-    textTransform: "uppercase" as const,
-    letterSpacing: 0.5,
-  },
-  reasonBullet: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-    marginLeft: 4,
-  },
-  shareCardSection: {
-    marginTop: 24,
-  },
-  shareCard: {
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 2,
-    marginTop: 8,
-  },
-  shareCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
-  },
-  shareCardBrand: {
-    color: "white",
-    fontWeight: "800" as const,
-    fontSize: 18,
-  },
-  shareCardContent: {
-    alignItems: "center",
-    paddingVertical: 12,
-    gap: 6,
-  },
-  shareCardScore: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  shareCardDomain: {
-    color: Colors.textTertiary,
-    fontSize: 13,
-  },
-  shareCardReason: {
-    color: Colors.textSecondary,
-    fontSize: 11,
-    marginTop: 6,
-    textAlign: "center" as const,
-    paddingHorizontal: 10,
-  },
-  shareCardFooter: {
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textAlign: "center" as const,
-  },
-  newScanBtn: {
-    marginTop: 24,
-    height: 50,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  newScanBtnPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  newScanText: {
-    color: Colors.primary,
-    fontWeight: "600" as const,
-    fontSize: 15,
-  },
-  bottomSpacer: {
-    height: 40,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  modalCard: {
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  modalTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700" as const,
-  },
-  modalCloseIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.backgroundTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalBullets: {
-    marginBottom: 20,
-    gap: 14,
-  },
-  modalBulletRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  modalBulletText: {
-    flex: 1,
-    color: Colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  modalCloseBtn: {
-    height: 48,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary,
-  },
-  modalCloseBtnPressed: {
-    backgroundColor: Colors.primaryDark,
-  },
-  modalCloseText: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "600" as const,
-  },
-  tooltipCard: {
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  tooltipHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-  },
-  tooltipTitle: {
-    color: Colors.text,
-    fontSize: 16,
-    fontWeight: "700" as const,
-  },
-  tooltipText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  tooltipBtn: {
-    height: 44,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary,
-  },
-  tooltipBtnPressed: {
-    backgroundColor: Colors.primaryDark,
-  },
-  tooltipBtnText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "600" as const,
-  },
-  safeViewContent: {
-    marginBottom: 20,
-  },
-  safeViewDomainRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: Colors.backgroundTertiary,
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-  safeViewDomain: {
-    flex: 1,
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: "600" as const,
-  },
-  safeViewBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  safeViewScore: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-  },
-  safeViewWarning: {
-    color: Colors.textTertiary,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  safeViewActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  safeViewCancelBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.backgroundTertiary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  safeViewCancelBtnPressed: {
-    backgroundColor: Colors.cardHighlight,
-  },
-  safeViewCancelText: {
-    color: Colors.textSecondary,
-    fontSize: 15,
-    fontWeight: "600" as const,
-  },
-  safeViewConfirmBtn: {
-    flex: 1,
-    flexDirection: "row",
-    height: 48,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.primary,
-  },
-  safeViewConfirmBtnPressed: {
-    backgroundColor: Colors.primaryDark,
-  },
-  safeViewConfirmText: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "600" as const,
-  },
-  loadingText: {
-    color: Colors.textSecondary,
-    marginTop: 8,
-    textAlign: "center" as const,
-    fontSize: 13,
-  },
-  errorText: {
-    color: Colors.highRisk,
-    marginTop: 8,
-    textAlign: "center" as const,
-    fontSize: 13,
-  },
-  impactText: {
-    fontSize: 11,
-    fontWeight: "700" as const,
-  },
-  severityBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  severityText: {
-    fontSize: 8,
-    fontWeight: "700" as const,
-    letterSpacing: 0.3,
-  },
-  statusChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  statusChipText: {
-    fontSize: 9,
-    fontWeight: "700" as const,
-    letterSpacing: 0.3,
-  },
-  scoreBreakdownHeader: {
-    paddingBottom: 10,
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  scoreBreakdownBase: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "600" as const,
-  },
-  scoreBreakdownFooter: {
-    paddingTop: 10,
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  scoreBreakdownFinal: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: "700" as const,
-  },
-  evidenceImpactBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginLeft: 4,
-  },
-  evidenceImpactText: {
-    fontSize: 10,
-    fontWeight: "700" as const,
-  },
-  evidenceWeight: {
-    color: Colors.textTertiary,
-    fontSize: 10,
-    marginTop: 4,
-  },
-  evidenceDetailsSection: {
-    marginBottom: 12,
-  },
-  evidenceDetailItem: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-    marginLeft: 4,
-  },
-  evidenceRawSection: {
-    marginTop: 8,
-  },
-});

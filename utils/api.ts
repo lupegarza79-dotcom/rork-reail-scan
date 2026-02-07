@@ -5,7 +5,9 @@ import type {
   BadgeType, 
   EvidenceCard, 
   ScoreBreakdown,
-  ContentScanResponse 
+  ContentScanResponse,
+  ReportScanRequest,
+  ReportScanResponse,
 } from "@/types/scan";
 import { getProviderLabel } from "./evidenceEngine";
 
@@ -14,13 +16,23 @@ export const BASE_URL =
   (Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL as string) ??
   "https://api.reail.app";
 
-async function headers() {
+const ANON_KEY =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+  (Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY as string) ??
+  "";
+
+async function headers(): Promise<Record<string, string>> {
   const deviceId = await getDeviceId();
-  return {
+  const h: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
     "X-Device-Id": deviceId,
   };
+  if (ANON_KEY) {
+    h["Authorization"] = `Bearer ${ANON_KEY}`;
+    h["apikey"] = ANON_KEY;
+  }
+  return h;
 }
 
 export type BackendScanResult = {
@@ -54,19 +66,31 @@ export async function postScanUrl(payload: {
   url: string;
   title?: string;
   score?: number;
-  reasons?: any;
+  reasons?: unknown;
   entityType?: "domain" | "vendor" | "creator" | "link";
   entityKey?: string;
-}): Promise<(BackendScanResult & { entity?: any }) | null> {
+}): Promise<(BackendScanResult & { entity?: unknown }) | null> {
   try {
-    const resp = await fetch(`${BASE_URL}/scan/url`, {
+    const resp = await fetch(`${BASE_URL}/content-scan`, {
       method: "POST",
       headers: await headers(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ url: payload.url }),
     });
-    if (!resp.ok) return null;
-    return (await resp.json()) as BackendScanResult & { entity?: any };
-  } catch {
+    if (!resp.ok) {
+      console.log("[API] postScanUrl failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as ContentScanResponse;
+    return {
+      id: data.scan_id,
+      badge: data.badge,
+      score: data.score,
+      summary: data.summary,
+      url: payload.url,
+      domain: undefined,
+    };
+  } catch (err) {
+    console.log("[API] postScanUrl error:", err);
     return null;
   }
 }
@@ -75,27 +99,33 @@ export async function fetchScanResultById(scanId: string): Promise<BackendScanRe
   if (!scanId) return null;
 
   try {
-    const resp = await fetch(`${BASE_URL}/scan/result?scanId=${encodeURIComponent(scanId)}`, {
+    console.log("[API] fetchScanResultById:", scanId);
+    const resp = await fetch(`${BASE_URL}/scan-result?scanId=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });
 
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      console.log("[API] fetchScanResultById failed:", resp.status);
+      return null;
+    }
     const data = await resp.json();
+    console.log("[API] fetchScanResultById ok");
     return data as BackendScanResult;
-  } catch {
+  } catch (err) {
+    console.log("[API] fetchScanResultById error:", err);
     return null;
   }
 }
 
-export async function fetchAlerts(): Promise<{ items: any[] } | null> {
+export async function fetchAlerts(): Promise<{ items: unknown[] } | null> {
   try {
     const resp = await fetch(`${BASE_URL}/alerts`, {
       method: "GET",
       headers: await headers(),
     });
     if (!resp.ok) return null;
-    return (await resp.json()) as { items: any[] };
+    return (await resp.json()) as { items: unknown[] };
   } catch {
     return null;
   }
@@ -127,14 +157,14 @@ export async function markAllAlertsReadApi(): Promise<boolean> {
   }
 }
 
-export async function fetchWatchlist(): Promise<{ items: any[] } | null> {
+export async function fetchWatchlist(): Promise<{ items: unknown[] } | null> {
   try {
     const resp = await fetch(`${BASE_URL}/watchlist`, {
       method: "GET",
       headers: await headers(),
     });
     if (!resp.ok) return null;
-    return (await resp.json()) as { items: any[] };
+    return (await resp.json()) as { items: unknown[] };
   } catch {
     return null;
   }
@@ -183,7 +213,7 @@ export async function contentScan(url: string): Promise<ContentScanResult | null
   console.log("[API] contentScan called with:", url);
   
   try {
-    const resp = await fetch(`${BASE_URL}/scan/content`, {
+    const resp = await fetch(`${BASE_URL}/content-scan`, {
       method: "POST",
       headers: await headers(),
       body: JSON.stringify({ url }),
@@ -227,7 +257,8 @@ export async function fetchScanEvidence(scanId: string): Promise<EvidenceCard[] 
   if (!scanId) return null;
 
   try {
-    const resp = await fetch(`${BASE_URL}/scan/evidence?scanId=${encodeURIComponent(scanId)}`, {
+    console.log("[API] fetchScanEvidence:", scanId);
+    const resp = await fetch(`${BASE_URL}/scan-evidence?scanId=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });
@@ -296,12 +327,63 @@ export interface ScanHistoryResponse {
   offset: number;
 }
 
+export async function reportScan(req: ReportScanRequest): Promise<ReportScanResponse | null> {
+  try {
+    console.log("[API] reportScan:", req.url, req.report_type);
+    const resp = await fetch(`${BASE_URL}/report-scan`, {
+      method: "POST",
+      headers: await headers(),
+      body: JSON.stringify(req),
+    });
+    if (!resp.ok) {
+      console.log("[API] reportScan failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as ReportScanResponse;
+    console.log("[API] reportScan ok:", data.report_id);
+    return data;
+  } catch (err) {
+    console.log("[API] reportScan error:", err);
+    return null;
+  }
+}
+
+export interface QuickScanResult {
+  badge: BadgeType | null;
+  score: number | null;
+  top_red_flags: string[];
+  scan_id: string | null;
+  cache_hit: boolean;
+  domain: string;
+  message?: string;
+}
+
+export async function quickScan(url: string): Promise<QuickScanResult | null> {
+  try {
+    console.log("[API] quickScan:", url);
+    const resp = await fetch(`${BASE_URL}/quick-scan?url=${encodeURIComponent(url)}`, {
+      method: "GET",
+      headers: await headers(),
+    });
+    if (!resp.ok) {
+      console.log("[API] quickScan failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as QuickScanResult;
+    console.log("[API] quickScan ok:", data.badge, data.score);
+    return data;
+  } catch (err) {
+    console.log("[API] quickScan error:", err);
+    return null;
+  }
+}
+
 export async function fetchScanHistory(options?: { limit?: number; offset?: number }): Promise<ScanHistoryResponse | null> {
   const limit = options?.limit ?? 100;
   const offset = options?.offset ?? 0;
 
   try {
-    const resp = await fetch(`${BASE_URL}/scan/history?limit=${limit}&offset=${offset}`, {
+    const resp = await fetch(`${BASE_URL}/scan-history?limit=${limit}&offset=${offset}`, {
       method: "GET",
       headers: await headers(),
     });

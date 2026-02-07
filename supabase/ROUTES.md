@@ -253,6 +253,124 @@ Views:
 
 If an external API key is missing, the provider returns `status: "unknown"`, `weight: 0`, `score_impact: 0` — no crash.
 
+## Integrate REAiL in < 60 Minutes
+
+Set these variables for all examples below:
+```bash
+BASE="https://<REF>.supabase.co/functions/v1"
+KEY="eyJhbGci..."   # legacy anon public JWT
+DEVICE="my-app-device-001"
+```
+
+### 1. Health Check (verify deployment)
+```bash
+curl -s "$BASE/content-scan?health" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" | jq .
+```
+
+### 2. Full Scan (core flow)
+```bash
+curl -s -X POST "$BASE/content-scan" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}' | jq .
+```
+Returns `scan_id`, `badge`, `score`, `evidence[]`, `score_breakdown`.
+
+### 3. Fetch Result by ID
+```bash
+curl -s "$BASE/scan-result?scanId=<SCAN_ID>" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" | jq .
+```
+
+### 4. Fetch Evidence Cards
+```bash
+curl -s "$BASE/scan-evidence?scanId=<SCAN_ID>" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" | jq .
+```
+
+### 5. Quick Scan (for extensions / lightweight lookups)
+```bash
+curl -s "$BASE/quick-scan?url=https://example.com" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" | jq .
+```
+Fast cached response: `badge`, `score`, `top_red_flags`, `scan_id`.
+Use this for browser extensions, bots, and real-time checks.
+
+### 6. Submit Community Report
+```bash
+curl -s -X POST "$BASE/report-scan" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://suspicious-site.com", "report_type": "scam", "description": "Fake giveaway"}' | jq .
+```
+
+### 7. Scan History
+```bash
+curl -s "$BASE/scan-history?limit=20&offset=0" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $KEY" \
+  -H "X-Device-Id: $DEVICE" | jq .
+```
+
+### Recommended Usage Patterns
+
+| Use Case | Endpoint | Notes |
+|----------|----------|-------|
+| Browser extension badge | `quick-scan` | Fast, cached, lightweight |
+| Mobile app full scan | `content-scan` | Full evidence pack, deterministic scoring |
+| Shared report link | `scan-result` | Fetch by scan_id for deep links |
+| Dashboard / history | `scan-history` | Paginated, filtered by device_id |
+| Community flagging | `report-scan` | Feeds into pattern_match provider |
+
+### Caching & Timeouts
+
+- `content-scan` caches results for 24h (configurable via `CACHE_TTL_HOURS` secret)
+- `quick-scan` returns cached results instantly if available
+- Recommended client timeout: 30s for `content-scan`, 10s for `quick-scan`
+- If a scan is cached, the response includes `"cache_hit": true`
+
+### Error Handling
+
+All endpoints return errors in a standard format:
+```json
+{
+  "message": "Human-readable error",
+  "code": "ERROR_CODE",
+  "details": "...",
+  "hint": "..."
+}
+```
+Always check HTTP status codes:
+- `200` — Success
+- `400` — Bad request (missing/invalid params)
+- `401` — Unauthorized (bad or missing JWT)
+- `404` — Not found (scan_id does not exist)
+- `500` — Server error
+
+### Future: Multi-Tenant Keys / Quotas
+
+Planned (owned by CODEX):
+- API keys per partner with usage quotas
+- Rate limiting per key (requests/min, scans/day)
+- Telemetry dashboard for partners
+- Webhook notifications for watchlisted domains
+
+## Browser Extension
+
+See `extension/EXTENSION.md` for installation and configuration.
+
 ## Automated Test Script
 
 ```powershell

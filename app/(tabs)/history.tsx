@@ -17,7 +17,6 @@ import { Search, Trash2, Share2, Clock, History, ChevronRight, RefreshCw, Cloud,
 import {
   loadHistory,
   clearHistory,
-  saveToHistory,
   type Badge,
   type ScanHistoryItem,
 } from "../../utils/historyStore";
