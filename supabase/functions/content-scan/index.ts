@@ -13,6 +13,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+const ENDPOINT = "content-scan";
+const CONTENT_SCAN_RATE_LIMIT = 30;
+const RATE_LIMIT_WINDOW_MINUTES = 60;
+
 type BadgeType = "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
 type EvidenceStatus = "pass" | "warn" | "fail" | "unknown";
 type EvidenceProvider =
@@ -159,6 +163,130 @@ const LOOKALIKE_BRANDS: Record<string, string[]> = {
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 function log(...args: unknown[]) {
   if (VERBOSE) console.log("[content-scan][verbose]", ...args);
+}
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("cf-connecting-ip")
+    || req.headers.get("x-real-ip")
+    || "unknown";
+}
+
+async function logTelemetry(supabase: any, payload: Record<string, unknown> | Record<string, unknown>[]) {
+  try {
+    const records = Array.isArray(payload) ? payload : [payload];
+    if (records.length === 0) return;
+    await supabase.from("scan_telemetry_events").insert(records);
+  } catch (error) {
+    console.log("[Telemetry] Failed to write:", error);
+  }
+}
+
+async function checkRateLimit(
+  supabase: any,
+  endpoint: string,
+  deviceId: string,
+  ip: string,
+  limit: number,
+  windowMinutes: number,
+): Promise<{
+  allowed: boolean;
+  retryAfterSeconds: number;
+  remaining: number;
+  limit: number;
+  windowSeconds: number;
+}> {
+  const now = new Date();
+  const windowSeconds = windowMinutes * 60;
+  const windowEnd = new Date(now.getTime() + windowSeconds * 1000);
+  const { data, error } = await supabase
+    .from("rate_limits")
+    .select("key, count, window_end, blocked_until")
+    .eq("endpoint", endpoint)
+    .eq("device_id", deviceId)
+    .eq("ip", ip)
+    .order("window_end", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.log("[RateLimit] Lookup error:", error);
+    return { allowed: true, retryAfterSeconds: 0, remaining: limit, limit, windowSeconds };
+  }
+
+  if (data?.blocked_until && new Date(data.blocked_until) > now) {
+    const retryAfterSeconds = Math.ceil((new Date(data.blocked_until).getTime() - now.getTime()) / 1000);
+    return { allowed: false, retryAfterSeconds, remaining: 0, limit, windowSeconds };
+  }
+
+  if (data && new Date(data.window_end) > now) {
+    if (data.count >= limit) {
+      await supabase
+        .from("rate_limits")
+        .update({ blocked_until: data.window_end, updated_at: now.toISOString() })
+        .eq("key", data.key);
+      const retryAfterSeconds = Math.ceil((new Date(data.window_end).getTime() - now.getTime()) / 1000);
+      return { allowed: false, retryAfterSeconds, remaining: 0, limit, windowSeconds };
+    }
+
+    await supabase
+      .from("rate_limits")
+      .update({ count: data.count + 1, updated_at: now.toISOString(), limit })
+      .eq("key", data.key);
+    return { allowed: true, retryAfterSeconds: 0, remaining: Math.max(0, limit - (data.count + 1)), limit, windowSeconds };
+  }
+
+  const key = `${endpoint}:${deviceId}:${ip}:${now.toISOString()}`;
+  await supabase.from("rate_limits").upsert({
+    key,
+    endpoint,
+    device_id: deviceId,
+    ip,
+    count: 1,
+    limit,
+    window_start: now.toISOString(),
+    window_end: windowEnd.toISOString(),
+    updated_at: now.toISOString(),
+  });
+  return { allowed: true, retryAfterSeconds: 0, remaining: Math.max(0, limit - 1), limit, windowSeconds };
+}
+
+async function runProvider(
+  providerName: EvidenceProvider,
+  fn: () => Promise<EvidenceItem>,
+  telemetry: Record<string, unknown>[],
+  deviceId: string,
+  ip: string,
+): Promise<EvidenceItem> {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    telemetry.push({
+      endpoint: ENDPOINT,
+      event_type: "provider",
+      provider: providerName,
+      latency_ms: Date.now() - start,
+      status: "ok",
+      success: true,
+      device_id: deviceId,
+      ip,
+    });
+    return result;
+  } catch (error) {
+    telemetry.push({
+      endpoint: ENDPOINT,
+      event_type: "provider",
+      provider: providerName,
+      latency_ms: Date.now() - start,
+      status: "error",
+      success: false,
+      error_code: (error as any)?.code ?? "PROVIDER_ERROR",
+      device_id: deviceId,
+      ip,
+    });
+    throw error;
+  }
 }
 
 function extractDomain(url: string): string {
@@ -1023,32 +1151,45 @@ serve(async (req: Request) => {
     const url = new URL(req.url);
     if (url.searchParams.get("health") !== null) {
       return new Response(JSON.stringify({
-        status: "ok",
-        function: "content-scan",
-        secrets: {
-          PROJECT_URL: !!Deno.env.get("PROJECT_URL"),
-          SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY"),
-          GOOGLE_SAFE_BROWSING_API_KEY: !!Deno.env.get("GOOGLE_SAFE_BROWSING_API_KEY"),
-          VIRUSTOTAL_API_KEY: !!Deno.env.get("VIRUSTOTAL_API_KEY"),
-          CACHE_TTL_HOURS: Deno.env.get("CACHE_TTL_HOURS") || "24",
+        ok: true,
+        endpoint: ENDPOINT,
+        details: {
+          secrets: {
+            PROJECT_URL: !!Deno.env.get("PROJECT_URL"),
+            SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY"),
+            GOOGLE_SAFE_BROWSING_API_KEY: !!Deno.env.get("GOOGLE_SAFE_BROWSING_API_KEY"),
+            VIRUSTOTAL_API_KEY: !!Deno.env.get("VIRUSTOTAL_API_KEY"),
+            CACHE_TTL_HOURS: Deno.env.get("CACHE_TTL_HOURS") || "24",
+          },
+          verbose: VERBOSE,
         },
-        verbose: VERBOSE,
         timestamp: new Date().toISOString(),
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ message: "Method not allowed", code: "METHOD_NOT_ALLOWED", details: null, hint: "Use POST" }), {
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "method_not_allowed",
+      message: "Method not allowed",
+      endpoint: ENDPOINT,
+    }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
+  const startTime = Date.now();
   try {
     const deviceId = req.headers.get("x-device-id") || "anonymous";
     const { url } = await req.json();
     if (!url || typeof url !== "string") {
-      return new Response(JSON.stringify({ message: "URL is required", code: "INVALID_INPUT", details: null, hint: null }), {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "invalid_input",
+        message: "URL is required",
+        endpoint: ENDPOINT,
+      }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -1058,6 +1199,46 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("PROJECT_URL")!;
     const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const ip = getClientIp(req);
+
+    const rateCheck = await checkRateLimit(
+      supabase,
+      "content-scan",
+      deviceId,
+      ip,
+      CONTENT_SCAN_RATE_LIMIT,
+      RATE_LIMIT_WINDOW_MINUTES,
+    );
+    if (!rateCheck.allowed) {
+      void logTelemetry(supabase, {
+        endpoint: ENDPOINT,
+        event_type: "scan",
+        device_id: deviceId,
+        ip,
+        status: "rate_limited",
+        latency_ms: 0,
+        cache_hit: null,
+      });
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "rate_limit_exceeded",
+        message: "Rate limit exceeded",
+        endpoint: ENDPOINT,
+        retry_after_seconds: rateCheck.retryAfterSeconds,
+        rate_limit: {
+          remaining: rateCheck.remaining,
+          limit: rateCheck.limit,
+          window_seconds: rateCheck.windowSeconds,
+        },
+      }), {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": String(rateCheck.retryAfterSeconds),
+        },
+      });
+    }
 
     const cacheTtl = parseInt(Deno.env.get("CACHE_TTL_HOURS") || "24", 10);
     const cacheKey = `scan:${url}`;
@@ -1076,25 +1257,116 @@ serve(async (req: Request) => {
       if (scanResult) {
         const rows = (cached.evidence || []).map((e: any) => buildEvidenceRow(scanResult.id, e));
         await supabase.from("scan_evidence").insert(rows);
+        void logTelemetry(supabase, {
+          endpoint: ENDPOINT,
+          event_type: "scan",
+          device_id: deviceId,
+          ip,
+          scan_id: scanResult.id,
+          score: cached.score,
+          badge: cached.badge,
+          cache_hit: true,
+          status: "ok",
+          latency_ms: Date.now() - startTime,
+          success: true,
+        });
 
         return new Response(JSON.stringify({
+          ok: true,
           scan_id: scanResult.id, badge: cached.badge, score: cached.score,
           summary: cached.summary, cache_hit: true,
+          rate_limit: {
+            remaining: rateCheck.remaining,
+            limit: rateCheck.limit,
+            window_seconds: rateCheck.windowSeconds,
+          },
           evidence: cached.evidence.map((e: any) => ({ provider: e.provider, status: e.status, summary: e.summary, weight: e.weight, payload: e.payload })),
           score_breakdown: cached.score_breakdown,
         }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
 
-    const [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel] = await Promise.all([
-      analyzeLinkIntel(url),
-      analyzeDomainIntel(url),
-      analyzePatternMatch(url, supabaseUrl, supabaseServiceKey),
-      analyzeGoogleSafeBrowsing(url),
-      analyzeVirusTotal(url),
-      analyzeReputationFromReports(url, supabaseUrl, supabaseServiceKey),
-      analyzeContentIntel(url),
+    const providerTelemetry: Record<string, unknown>[] = [];
+
+    const [
+      linkIntel,
+      domainIntel,
+      patternMatch,
+      googleSB,
+      virusTotal,
+      reputation,
+      contentIntel,
+    ] = await Promise.all([
+      runProvider(
+        "link_intel",
+        () => analyzeLinkIntel(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "domain_intel",
+        () => analyzeDomainIntel(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "pattern_match",
+        () => analyzePatternMatch(
+          url,
+          supabaseUrl,
+          supabaseServiceKey,
+        ),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "google_safe_browsing",
+        () => analyzeGoogleSafeBrowsing(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "virustotal",
+        () => analyzeVirusTotal(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "reputation_reports",
+        () =>
+          analyzeReputationFromReports(
+            url,
+            supabaseUrl,
+            supabaseServiceKey,
+          ),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "content_intel",
+        () => analyzeContentIntel(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
     ]);
+
+    const evidence: EvidenceItem[] = [
+      linkIntel,
+      domainIntel,
+      patternMatch,
+      googleSB,
+      virusTotal,
+      reputation,
+      contentIntel,
+    ];
+
 
     const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel];
     const { score, badge } = calculateScore(evidence);
@@ -1127,6 +1399,23 @@ serve(async (req: Request) => {
       throw scanError;
     }
 
+    void logTelemetry(supabase, [
+      {
+        endpoint: ENDPOINT,
+        event_type: "scan",
+        device_id: deviceId,
+        ip,
+        scan_id: scanResult.id,
+        score,
+        badge,
+        cache_hit: false,
+        status: "ok",
+        latency_ms: Date.now() - startTime,
+        success: true,
+      },
+      ...providerTelemetry,
+    ]);
+
     const evidenceRows = evidence.map((e) => buildEvidenceRow(scanResult.id, e));
     const { error: evidenceError } = await supabase.from("scan_evidence").insert(evidenceRows);
     if (evidenceError) console.error("[content-scan] Evidence insert error:", evidenceError);
@@ -1138,7 +1427,13 @@ serve(async (req: Request) => {
     }, cacheTtl);
 
     const response = {
+      ok: true,
       scan_id: scanResult.id, badge, score, summary, cache_hit: false,
+      rate_limit: {
+        remaining: rateCheck.remaining,
+        limit: rateCheck.limit,
+        window_seconds: rateCheck.windowSeconds,
+      },
       evidence: evidence.map((e) => ({ provider: e.provider, status: e.status, summary: e.summary, weight: e.weight, payload: e.payload })),
       score_breakdown: scoreBreakdown,
     };
@@ -1147,12 +1442,33 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify(response), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[content-scan] Error:", error);
+    try {
+      const supabaseUrl = Deno.env.get("PROJECT_URL");
+      const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY");
+      if (supabaseUrl && supabaseServiceKey) {
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const deviceId = req.headers.get("x-device-id") || "anonymous";
+        const ip = getClientIp(req);
+        await logTelemetry(supabase, {
+          endpoint: ENDPOINT,
+          event_type: "scan",
+          device_id: deviceId,
+          ip,
+          status: "error",
+          latency_ms: Date.now() - startTime,
+          cache_hit: null,
+          error_code: (error as any)?.code ?? "internal_error",
+        });
+      }
+    } catch (telemetryError) {
+      console.log("[Telemetry] Failed to write error event:", telemetryError);
+    }
     const errObj = error instanceof Error ? error : new Error(String(error));
     return new Response(JSON.stringify({
+      ok: false,
+      error_code: (error as any)?.code ?? "internal_error",
       message: errObj.message,
-      code: (error as any)?.code ?? "INTERNAL_ERROR",
-      details: (error as any)?.details ?? null,
-      hint: (error as any)?.hint ?? null,
+      endpoint: ENDPOINT,
     }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

@@ -58,6 +58,8 @@ supabase secrets set VERBOSE_LOGGING=true
 | `scan-history` | GET `?limit=&offset=` | Fetch scan history by device_id |
 | `report-scan` | POST | Submit user report for a URL |
 | `quick-scan` | GET `?url=` | Fast cached lookup for browser extensions |
+| `cache-cleanup` | POST | Cleanup expired cache entries |
+| `cache-cleanup` | GET `?health` | Health check |
 
 ## Deployment
 
@@ -68,6 +70,30 @@ supabase functions deploy scan-result
 supabase functions deploy scan-history
 supabase functions deploy report-scan
 supabase functions deploy quick-scan
+supabase functions deploy cache-cleanup
+```
+
+## Production Scheduler (Cache Cleanup)
+
+Use pg_cron (recommended) or a scheduled Edge Function to run:
+```sql
+select cleanup_expired_cache();
+```
+
+Example pg_cron schedule (every 2 hours):
+```sql
+select
+  cron.schedule(
+    'cache-cleanup-2h',
+    '0 */2 * * *',
+    $$select cleanup_expired_cache();$$
+  );
+```
+
+Supabase Edge Scheduler alternative (every 2 hours):
+```
+supabase functions deploy cache-cleanup
+supabase functions schedule cache-cleanup --cron "0 */2 * * *"
 ```
 
 ## Health Checks
@@ -75,24 +101,53 @@ supabase functions deploy quick-scan
 Every function exposes `GET ?health`:
 ```json
 {
-  "status": "ok",
-  "function": "<name>",
-  "secrets": { "PROJECT_URL": true, "SERVICE_ROLE_KEY": true },
+  "ok": true,
+  "endpoint": "<name>",
+  "details": { "secrets": { "PROJECT_URL": true, "SERVICE_ROLE_KEY": true } },
   "timestamp": "2024-02-03T12:00:00.000Z"
 }
 ```
 
 content-scan health also reports: `GOOGLE_SAFE_BROWSING_API_KEY`, `VIRUSTOTAL_API_KEY`, `CACHE_TTL_HOURS`.
 
+## Rate Limiting
+
+`content-scan` and `quick-scan` enforce basic rate limits based on `X-Device-Id` + IP.
+Each successful response includes a `rate_limit` object:
+```json
+{
+  "ok": true,
+  "rate_limit": {
+    "remaining": 29,
+    "limit": 30,
+    "window_seconds": 3600
+  }
+}
+```
+
+When exceeded, responses return `429` with a `Retry-After` header and:
+```json
+{
+  "ok": false,
+  "error_code": "rate_limit_exceeded",
+  "message": "Rate limit exceeded",
+  "endpoint": "content-scan",
+  "retry_after_seconds": 3600,
+  "rate_limit": { "remaining": 0, "limit": 30, "window_seconds": 3600 },
+  "trace_id": "optional"
+}
+```
+
 ## Standardized Error Format
 
 All functions return errors as:
 ```json
 {
-  "message": "Human-readable error",
-  "code": "ERROR_CODE or PostgREST code",
-  "details": "Additional details or null",
-  "hint": "Fix suggestion or null"
+  "ok": false,
+  "error_code": "string_machine_readable",
+  "message": "Human readable",
+  "endpoint": "content-scan",
+  "trace_id": "optional"
 }
 ```
 
@@ -106,6 +161,7 @@ Request:
 Response:
 ```json
 {
+  "ok": true,
   "scan_id": "uuid",
   "badge": "VERIFIED" | "UNVERIFIED" | "HIGH_RISK",
   "score": 85,
@@ -133,6 +189,7 @@ Response:
 Response (normalized):
 ```json
 {
+  "ok": true,
   "evidence": [
     {
       "id": "uuid",
@@ -154,6 +211,7 @@ Response (normalized):
 Response:
 ```json
 {
+  "ok": true,
   "id": "uuid",
   "url": "string",
   "finalUrl": "string",
@@ -171,6 +229,7 @@ Response:
 Response:
 ```json
 {
+  "ok": true,
   "items": [
     {
       "scanId": "uuid",
@@ -202,6 +261,7 @@ Request:
 Response:
 ```json
 {
+  "ok": true,
   "report_id": "uuid",
   "message": "Report submitted successfully",
   "total_reports": 5
@@ -212,12 +272,22 @@ Response:
 Response:
 ```json
 {
+  "ok": true,
   "badge": "VERIFIED" | "UNVERIFIED" | "HIGH_RISK" | null,
   "score": 85 | null,
   "top_red_flags": ["Suspicious redirect pattern detected"],
   "scan_id": "uuid" | null,
   "cache_hit": true,
   "domain": "example.com"
+}
+```
+
+### POST /cache-cleanup
+Response:
+```json
+{
+  "ok": true,
+  "deleted": 42
 }
 ```
 
@@ -229,16 +299,22 @@ Run migrations in order:
 1. `supabase/migrations/20240203_scan_tables.sql` — Core tables (scan_results, scan_evidence)
 2. `supabase/migrations/20240204_scan_reports.sql` — Reports table (scan_reports, report_aggregates view)
 3. `supabase/migrations/20240205_cache_schema_threat.sql` — Cache table + schema alignment + new providers
+4. `supabase/migrations/20240206_rate_limits_telemetry.sql` — Rate limits + telemetry tables and view
+5. `supabase/migrations/20240207_rate_limits_telemetry_update.sql` — Extended rate limits + telemetry metadata
+6. `supabase/migrations/20240208_rate_limits_telemetry_phase1.sql` — Phase 1 schema alignment
 
 Tables:
 - `scan_results` — Main scan records
 - `scan_evidence` — Evidence cards (card_title, card_status, card_payload columns)
 - `scan_reports` — User-submitted reports (feeds into pattern_match + reputation_reports)
 - `scan_cache` — URL scan cache (key, value jsonb, expires_at)
+- `rate_limits` — Request counters for rate limiting (endpoint/device/ip windowed, count/limit)
+- `scan_telemetry_events` — Telemetry events (endpoint, status, latency_ms, cache_hit)
 
 Views:
 - `scan_with_evidence` — Join of results + evidence
 - `report_aggregates` — Report counts per URL/domain
+- `telemetry_summary` — Daily summary by endpoint/device/ip (calls, latency, error rate, cache hit rate, rate-limit hits)
 
 ## Evidence Providers
 
