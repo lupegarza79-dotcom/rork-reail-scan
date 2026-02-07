@@ -26,7 +26,8 @@ type EvidenceProvider =
   | "ssl_intel"
   | "google_safe_browsing"
   | "virustotal"
-  | "reputation_reports";
+  | "reputation_reports"
+  | "content_intel";
 
 const SCAM_KEYWORDS = [
   "urgent", "verify", "suspended", "investment", "crypto", "giveaway",
@@ -663,6 +664,161 @@ async function analyzePatternMatch(url: string, supabaseUrl: string, serviceKey:
   return { provider: "pattern_match", provider_label: "Pattern Match", status, summary, weight: 20, score_impact: scoreImpact, payload };
 }
 
+// --------------- CONTENT INTEL ---------------
+
+const URGENCY_PATTERNS = [
+  /act\s*now/i, /limited\s*time/i, /expires?\s*(today|soon|in \d)/i,
+  /hurry/i, /don'?t\s*miss/i, /last\s*chance/i, /only\s*\d+\s*left/i,
+  /immediate(ly)?/i, /right\s*away/i, /asap/i, /within\s*\d+\s*(hour|minute)/i,
+];
+
+const IMPERSONATION_PATTERNS = [
+  /official\s*(notice|statement|announcement)/i,
+  /from\s*(the\s*)?(government|irs|fbi|cia|fda|who|cdc)/i,
+  /your\s*(bank|account|apple\s*id|paypal|amazon)/i,
+  /dear\s*(customer|user|member|valued)/i,
+  /we\s*have\s*(detected|noticed|found)/i,
+  /security\s*(team|department|division)/i,
+  /verify\s*your\s*(identity|account|information)/i,
+];
+
+const SCAM_PHRASE_PATTERNS = [
+  /you\s*(have\s*)?(won|been\s*selected)/i,
+  /claim\s*your\s*(reward|prize|money|gift)/i,
+  /guaranteed\s*(return|profit|income)/i,
+  /risk[\s-]*free/i,
+  /no\s*(risk|obligation)/i,
+  /make\s*money\s*(fast|online|from\s*home)/i,
+  /double\s*your\s*(money|bitcoin|crypto)/i,
+  /wire\s*(transfer|money)/i,
+  /gift\s*card\s*(payment|code)/i,
+  /social\s*security\s*number/i,
+  /password.*expired/i,
+  /click\s*(here|below|this\s*link)\s*(to|for)/i,
+];
+
+interface ContentIntelPayload {
+  fetchSuccess: boolean;
+  contentLength: number;
+  detectedLanguage: string;
+  urgencyMatches: string[];
+  impersonationMatches: string[];
+  scamPhraseMatches: string[];
+  totalFlags: number;
+}
+
+function detectLanguage(text: string): string {
+  const sample = text.slice(0, 2000).toLowerCase();
+  const spanishWords = ["el", "la", "de", "en", "que", "los", "del", "las", "por", "con", "una", "para", "como", "pero", "sus"];
+  const frenchWords = ["le", "la", "de", "les", "des", "du", "un", "une", "est", "dans", "pour", "que", "qui", "sur", "avec"];
+  const germanWords = ["der", "die", "und", "den", "das", "von", "ist", "des", "dem", "nicht", "ein", "eine", "sich", "mit", "auch"];
+  const words = sample.split(/\s+/);
+  const counts: Record<string, number> = { es: 0, fr: 0, de: 0 };
+  for (const w of words) {
+    if (spanishWords.includes(w)) counts.es++;
+    if (frenchWords.includes(w)) counts.fr++;
+    if (germanWords.includes(w)) counts.de++;
+  }
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (best[1] > words.length * 0.05) return best[0];
+  return "en";
+}
+
+function extractTextFromHtml(html: string): string {
+  let text = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.slice(0, 50000);
+}
+
+function matchPatterns(text: string, patterns: RegExp[]): string[] {
+  const matches: string[] = [];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) matches.push(m[0]);
+  }
+  return matches;
+}
+
+async function analyzeContentIntel(url: string): Promise<EvidenceItem> {
+  console.log("[ContentIntel] Fetching page:", url);
+  let fetchSuccess = false;
+  let bodyText = "";
+  let contentLength = 0;
+
+  try {
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "ReailBot/2.0" },
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+    });
+    if (resp.ok) {
+      const html = await resp.text();
+      contentLength = html.length;
+      bodyText = extractTextFromHtml(html);
+      fetchSuccess = true;
+    } else {
+      console.log("[ContentIntel] Fetch returned status:", resp.status);
+    }
+  } catch (e) {
+    console.log("[ContentIntel] Fetch failed:", e);
+  }
+
+  if (!fetchSuccess || bodyText.length < 20) {
+    return {
+      provider: "content_intel", provider_label: "Content Intel",
+      status: "unknown", summary: "Could not retrieve page content for analysis",
+      weight: 0, score_impact: 0,
+      payload: { fetchSuccess, contentLength, detectedLanguage: "unknown", urgencyMatches: [], impersonationMatches: [], scamPhraseMatches: [], totalFlags: 0 },
+    };
+  }
+
+  const detectedLanguage = detectLanguage(bodyText);
+  const urgencyMatches = matchPatterns(bodyText, URGENCY_PATTERNS);
+  const impersonationMatches = matchPatterns(bodyText, IMPERSONATION_PATTERNS);
+  const scamPhraseMatches = matchPatterns(bodyText, SCAM_PHRASE_PATTERNS);
+  const totalFlags = urgencyMatches.length + impersonationMatches.length + scamPhraseMatches.length;
+
+  const payload: ContentIntelPayload = {
+    fetchSuccess, contentLength, detectedLanguage,
+    urgencyMatches, impersonationMatches, scamPhraseMatches, totalFlags,
+  };
+
+  console.log("[ContentIntel] Flags found:", totalFlags, "lang:", detectedLanguage);
+
+  let status: EvidenceStatus = "pass";
+  let summary = "Page content appears clean";
+  let scoreImpact = 3;
+
+  if (impersonationMatches.length >= 2 && (urgencyMatches.length >= 1 || scamPhraseMatches.length >= 1)) {
+    status = "fail";
+    summary = `Impersonation + urgency detected: ${impersonationMatches.slice(0, 2).join(", ")}`;
+    scoreImpact = -25;
+  } else if (scamPhraseMatches.length >= 3) {
+    status = "fail";
+    summary = `Multiple scam phrases detected: ${scamPhraseMatches.slice(0, 3).join(", ")}`;
+    scoreImpact = -20;
+  } else if (totalFlags >= 5) {
+    status = "fail";
+    summary = `${totalFlags} suspicious content patterns detected`;
+    scoreImpact = -18;
+  } else if (totalFlags >= 3) {
+    status = "warn";
+    summary = `${totalFlags} content flags: urgency/impersonation/scam phrases`;
+    scoreImpact = -10;
+  } else if (totalFlags >= 1) {
+    status = "warn";
+    summary = `Minor content flag: ${[...urgencyMatches, ...impersonationMatches, ...scamPhraseMatches][0]}`;
+    scoreImpact = -3;
+  }
+
+  return { provider: "content_intel", provider_label: "Content Intel", status, summary, weight: 15, score_impact: scoreImpact, payload };
+}
+
 // --------------- EXTERNAL THREAT INTEL ---------------
 
 async function analyzeGoogleSafeBrowsing(url: string): Promise<EvidenceItem> {
@@ -1139,6 +1295,7 @@ serve(async (req: Request) => {
       googleSB,
       virusTotal,
       reputation,
+      contentIntel,
     ] = await Promise.all([
       runProvider(
         "link_intel",
@@ -1156,7 +1313,11 @@ serve(async (req: Request) => {
       ),
       runProvider(
         "pattern_match",
-        () => analyzePatternMatch(url, supabaseUrl, supabaseServiceKey),
+        () => analyzePatternMatch(
+          url,
+          supabaseUrl,
+          supabaseServiceKey,
+        ),
         providerTelemetry,
         deviceId,
         ip,
@@ -1177,14 +1338,37 @@ serve(async (req: Request) => {
       ),
       runProvider(
         "reputation_reports",
-        () => analyzeReputationFromReports(url, supabaseUrl, supabaseServiceKey),
+        () =>
+          analyzeReputationFromReports(
+            url,
+            supabaseUrl,
+            supabaseServiceKey,
+          ),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "content_intel",
+        () => analyzeContentIntel(url),
         providerTelemetry,
         deviceId,
         ip,
       ),
     ]);
 
-    const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation];
+    const evidence: EvidenceItem[] = [
+      linkIntel,
+      domainIntel,
+      patternMatch,
+      googleSB,
+      virusTotal,
+      reputation,
+      contentIntel,
+    ];
+
+
+    const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel];
     const { score, badge } = calculateScore(evidence);
     const domain = extractDomain((linkIntel.payload as any).finalUrl || url);
     const summary = generateSummary(badge, evidence, domain);

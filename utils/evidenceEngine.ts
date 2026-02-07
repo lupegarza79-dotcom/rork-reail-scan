@@ -286,6 +286,7 @@ export function getStatusLabel(status: EvidenceStatus): string {
     case 'warn': return 'WARN';
     case 'fail': return 'FAIL';
     case 'pending': return 'PENDING';
+    default: return 'UNKNOWN';
   }
 }
 

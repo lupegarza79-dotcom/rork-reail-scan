@@ -1,8 +1,8 @@
 export type BadgeType = 'VERIFIED' | 'UNVERIFIED' | 'HIGH_RISK';
 
-export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'pending';
+export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'pending' | 'unknown';
 
-export type EvidenceProvider = 'link_intel' | 'domain_intel' | 'social_context' | 'pattern_match';
+export type EvidenceProvider = 'link_intel' | 'domain_intel' | 'social_context' | 'pattern_match' | 'ssl_intel' | 'google_safe_browsing' | 'virustotal' | 'reputation_reports' | 'content_intel';
 
 export interface EvidencePayload {
   [key: string]: unknown;
@@ -181,6 +181,36 @@ export interface ContentScanResponse {
 }
 
 export type ReportType = 'scam' | 'phishing' | 'spam' | 'misleading' | 'safe' | 'other';
+
+export type TrustTier = 'trusted' | 'neutral' | 'suspicious' | 'malicious' | 'unknown';
+
+export interface DomainTrustProfile {
+  domain: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  totalScans: number;
+  verifiedCount: number;
+  unverifiedCount: number;
+  highRiskCount: number;
+  avgScore: number;
+  minScore: number;
+  maxScore: number;
+  totalReports: number;
+  scamReports: number;
+  safeReports: number;
+  trustTier: TrustTier;
+  tierLocked: boolean;
+}
+
+export interface ContentIntelPayload extends EvidencePayload {
+  fetchSuccess?: boolean;
+  contentLength?: number;
+  detectedLanguage?: string;
+  urgencyMatches?: string[];
+  impersonationMatches?: string[];
+  scamPhraseMatches?: string[];
+  totalFlags?: number;
+}
 
 export interface ReportScanRequest {
   scan_id?: string;

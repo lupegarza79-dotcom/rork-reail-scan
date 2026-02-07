@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 340px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #050508;
+      color: #e2e8f0;
+      padding: 0;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #1E1E2A;
+    }
+    .header-icon { font-size: 18px; }
+    .header-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.3px;
+    }
+    .header-version {
+      margin-left: auto;
+      font-size: 10px;
+      color: #71717A;
+      background: #14141C;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .result-section { padding: 16px; }
+
+    .badge-display {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 14px;
+      margin-bottom: 12px;
+      border: 1px solid;
+    }
+    .badge-display.verified {
+      background: rgba(16, 185, 129, 0.08);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+    .badge-display.high_risk {
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .badge-display.unverified {
+      background: rgba(245, 158, 11, 0.08);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+    .badge-display.unknown {
+      background: rgba(107, 114, 128, 0.08);
+      border-color: rgba(107, 114, 128, 0.3);
+    }
+    .badge-display.loading {
+      background: #0C0C12;
+      border-color: #1E1E2A;
+    }
+
+    .badge-icon-wrap {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .verified .badge-icon-wrap { background: rgba(16, 185, 129, 0.15); }
+    .high_risk .badge-icon-wrap { background: rgba(239, 68, 68, 0.15); }
+    .unverified .badge-icon-wrap { background: rgba(245, 158, 11, 0.15); }
+    .unknown .badge-icon-wrap { background: rgba(107, 114, 128, 0.15); }
+    .loading .badge-icon-wrap { background: #14141C; }
+
+    .badge-info { flex: 1; }
+    .badge-label {
+      font-weight: 700;
+      font-size: 15px;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+    .badge-score {
+      font-size: 12px;
+      color: #A1A1AA;
+    }
+    .badge-domain {
+      font-size: 11px;
+      color: #71717A;
+      margin-top: 2px;
+      word-break: break-all;
+    }
+
+    .flags-section {
+      margin-bottom: 12px;
+    }
+    .flags-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #71717A;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .flags-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .flags-list li {
+      padding: 8px 12px;
+      background: #0C0C12;
+      border-radius: 10px;
+      font-size: 12px;
+      color: #A1A1AA;
+      border: 1px solid #1E1E2A;
+      line-height: 1.4;
+    }
+    .flags-list li::before {
+      content: "⚠ ";
+      color: #F59E0B;
+    }
+
+    .actions-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+    .action-btn-primary {
+      background: #2563EB;
+      color: #fff;
+    }
+    .action-btn-primary:hover { background: #1D4ED8; }
+    .action-btn-secondary {
+      background: #0C0C12;
+      color: #A1A1AA;
+      border: 1px solid #1E1E2A;
+    }
+    .action-btn-secondary:hover { background: #14141C; }
+
+    .no-result-msg {
+      text-align: center;
+      padding: 20px 16px;
+      color: #71717A;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .no-result-msg a {
+      color: #2563EB;
+      text-decoration: none;
+    }
+
+    .error-msg {
+      text-align: center;
+      padding: 16px;
+      color: #EF4444;
+      font-size: 12px;
+      background: rgba(239, 68, 68, 0.08);
+      border-radius: 10px;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #1E1E2A;
+      border-top-color: #2563EB;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    details {
+      border-top: 1px solid #1E1E2A;
+      padding: 12px 16px;
+    }
+    summary {
+      font-size: 11px;
+      cursor: pointer;
+      color: #71717A;
+      user-select: none;
+    }
+    .config-section { margin-top: 10px; }
+    .config-section label {
+      display: block;
+      font-size: 10px;
+      margin-bottom: 4px;
+      color: #71717A;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .config-section input {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #1E1E2A;
+      background: #0C0C12;
+      color: #e2e8f0;
+      font-size: 12px;
+      margin-bottom: 8px;
+      outline: none;
+    }
+    .config-section input:focus {
+      border-color: #2563EB;
+    }
+    .save-btn {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 8px;
+      background: #14141C;
+      color: #A1A1AA;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #1E1E2A;
+    }
+    .save-btn:hover { background: #1E1E2A; color: #fff; }
+    .status { font-size: 10px; color: #10B981; margin-top: 6px; text-align: center; }
+
+    .footer {
+      padding: 10px 16px;
+      border-top: 1px solid #1E1E2A;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-text {
+      font-size: 10px;
+      color: #71717A;
+    }
+    .footer-link {
+      font-size: 10px;
+      color: #2563EB;
+      text-decoration: none;
+    }
+    .footer-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="header-icon">🛡️</span>
+    <span class="header-title">REAiL</span>
+    <span class="header-version">v1.0</span>
+  </div>
+
+  <div class="result-section">
+    <div id="result">
+      <div class="badge-display loading">
+        <div class="badge-icon-wrap"><span class="spinner"></span></div>
+        <div class="badge-info">
+          <div class="badge-label">Scanning...</div>
+          <div class="badge-score">Analyzing current page</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="flags-container" class="flags-section" style="display:none;">
+      <div class="flags-title">Signals detected</div>
+      <ul id="flags" class="flags-list"></ul>
+    </div>
+
+    <div id="actions" class="actions-row" style="display:none;">
+      <a id="fullReportLink" class="action-btn action-btn-primary" target="_blank" rel="noopener">
+        Full Report
+      </a>
+      <button id="rescanBtn" class="action-btn action-btn-secondary">
+        🔄 Rescan
+      </button>
+    </div>
+  </div>
+
+  <details>
+    <summary>⚙️ Extension Settings</summary>
+    <div class="config-section">
+      <label>API Base URL</label>
+      <input id="apiBase" placeholder="https://xyz.supabase.co/functions/v1" />
+      <label>Anon Key (Legacy JWT)</label>
+      <input id="anonKey" placeholder="eyJhbGci..." />
+      <button id="save" class="save-btn">Save Configuration</button>
+      <div id="saveStatus" class="status"></div>
+    </div>
+  </details>
+
+  <div class="footer">
+    <span class="footer-text">Risk-based verification • Not absolute truth</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
