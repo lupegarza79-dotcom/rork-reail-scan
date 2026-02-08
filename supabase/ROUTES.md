@@ -358,6 +358,7 @@ Run migrations in order:
 5. `supabase/migrations/20240207_rate_limits_telemetry_update.sql` — Extended rate limits + telemetry metadata
 6. `supabase/migrations/20240208_rate_limits_telemetry_phase1.sql` — Phase 1 schema alignment
 7. `supabase/migrations/20240209_wallet_share_links.sql` — Wallet share links for viral distribution
+8. `supabase/migrations/20240210_money_cases.sql` — Money cases for refund/dispute Rail Packs
 
 Tables:
 - `scan_results` — Main scan records
@@ -367,6 +368,9 @@ Tables:
 - `rate_limits` — Request counters for rate limiting (endpoint/device/ip windowed, count/limit)
 - `scan_telemetry_events` — Telemetry events (endpoint, status, latency_ms, cache_hit)
 - `wallet_share_links` — Shareable verdict links (token, original_url, scan_id, badge, score, expires_at)
+- `money_cases` — Payment dispute cases for Rail Pack generation
+- `case_events` — Timeline events for money cases
+- `case_artifacts` — Uploaded proof/documents for cases
 
 Views:
 - `scan_with_evidence` — Join of results + evidence

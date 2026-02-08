@@ -8,6 +8,9 @@ import type {
   ContentScanResponse,
   ReportScanRequest,
   ReportScanResponse,
+  MoneyCaseInput,
+  MoneyCaseResponse,
+  MoneyCaseFullResponse,
 } from "@/types/scan";
 import { getProviderLabel } from "./evidenceEngine";
 
@@ -398,6 +401,47 @@ export async function fetchScanHistory(options?: { limit?: number; offset?: numb
     return data;
   } catch (err) {
     console.log("[API] fetchScanHistory error:", err);
+    return null;
+  }
+}
+
+export async function createMoneyCase(input: MoneyCaseInput): Promise<MoneyCaseResponse | null> {
+  try {
+    console.log("[API] createMoneyCase:", input.issue_type);
+    const resp = await fetch(`${BASE_URL}/money-case`, {
+      method: "POST",
+      headers: await headers(),
+      body: JSON.stringify(input),
+    });
+    if (!resp.ok) {
+      console.log("[API] createMoneyCase failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as MoneyCaseResponse;
+    console.log("[API] createMoneyCase ok:", data.case_id);
+    return data;
+  } catch (err) {
+    console.log("[API] createMoneyCase error:", err);
+    return null;
+  }
+}
+
+export async function fetchMoneyCase(caseId: string): Promise<MoneyCaseFullResponse | null> {
+  try {
+    console.log("[API] fetchMoneyCase:", caseId);
+    const resp = await fetch(`${BASE_URL}/money-case?case_id=${encodeURIComponent(caseId)}`, {
+      method: "GET",
+      headers: await headers(),
+    });
+    if (!resp.ok) {
+      console.log("[API] fetchMoneyCase failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as MoneyCaseFullResponse;
+    console.log("[API] fetchMoneyCase ok");
+    return data;
+  } catch (err) {
+    console.log("[API] fetchMoneyCase error:", err);
     return null;
   }
 }
