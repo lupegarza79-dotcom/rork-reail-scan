@@ -83,23 +83,66 @@ supabase functions deploy money-case
 
 Use pg_cron (recommended) or a scheduled Edge Function to run:
 ```sql
-select cleanup_expired_cache();
+SELECT cleanup_expired_cache();
+SELECT cleanup_expired_share_links();
 ```
 
-Example pg_cron schedule (every 2 hours):
+Example pg_cron schedule:
 ```sql
-select
-  cron.schedule(
-    'cache-cleanup-2h',
-    '0 */2 * * *',
-    $$select cleanup_expired_cache();$$
-  );
+-- Cache cleanup every 2 hours
+SELECT cron.schedule(
+  'cache-cleanup-2h',
+  '0 */2 * * *',
+  $SELECT cleanup_expired_cache();$
+);
+
+-- Share links cleanup daily at 3 AM
+SELECT cron.schedule(
+  'share-links-cleanup-daily',
+  '0 3 * * *',
+  $SELECT cleanup_expired_share_links();$
+);
 ```
 
 Supabase Edge Scheduler alternative (every 2 hours):
 ```
 supabase functions deploy cache-cleanup
 supabase functions schedule cache-cleanup --cron "0 */2 * * *"
+```
+
+## Local Development (Windows)
+
+### Quick Start
+```powershell
+pwsh scripts/dev.ps1          # pull, install, start tunnel
+pwsh scripts/dev.ps1 -Web     # web mode
+pwsh scripts/dev.ps1 -Clear   # clear cache
+```
+
+### Supabase Operations
+```powershell
+$env:SUPABASE_ACCESS_TOKEN = "<token>"
+$env:SUPABASE_PROJECT_REF  = "<ref>"
+
+pwsh scripts/supabase.ps1 -Action login
+pwsh scripts/supabase.ps1 -Action link
+pwsh scripts/supabase.ps1 -Action status    # migration list
+pwsh scripts/supabase.ps1 -Action push      # apply migrations
+pwsh scripts/supabase.ps1 -Action deploy    # deploy all functions
+pwsh scripts/supabase.ps1 -Action all       # push + deploy
+```
+
+### Complete Edge Function Deploy List
+```bash
+npx supabase functions deploy content-scan --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy scan-evidence --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy scan-result --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy scan-history --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy report-scan --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy quick-scan --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy cache-cleanup --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy wallet-share --project-ref <REF> --no-verify-jwt
+npx supabase functions deploy money-case --project-ref <REF> --no-verify-jwt
 ```
 
 ## Health Checks
@@ -436,10 +479,38 @@ Run migrations in order:
 2. `supabase/migrations/20240204_scan_reports.sql` — Reports table (scan_reports, report_aggregates view)
 3. `supabase/migrations/20240205_cache_schema_threat.sql` — Cache table + schema alignment + new providers
 4. `supabase/migrations/20240206_rate_limits_telemetry.sql` — Rate limits + telemetry tables and view
-5. `supabase/migrations/20240207_rate_limits_telemetry_update.sql` — Extended rate limits + telemetry metadata
-6. `supabase/migrations/20240208_rate_limits_telemetry_phase1.sql` — Phase 1 schema alignment
-7. `supabase/migrations/20240209_wallet_share_links.sql` — Wallet share links for viral distribution
-8. `supabase/migrations/20240210_money_cases.sql` — Money cases for refund/dispute Rail Packs
+5. `supabase/migrations/20240206_trust_graph.sql` — Domain trust profiles + graph edges + relationships
+6. `supabase/migrations/20240207_rate_limits_telemetry_update.sql` — Extended rate limits + telemetry metadata
+7. `supabase/migrations/20240208_rate_limits_telemetry_phase1.sql` — Phase 1 schema alignment
+8. `supabase/migrations/20240209_wallet_share_links.sql` — Wallet share links for viral distribution
+9. `supabase/migrations/20240210_money_cases.sql` — Money cases for refund/dispute Rail Packs
+
+**All migrations are idempotent** — they use `IF NOT EXISTS`, `DO $ ... EXCEPTION` guards,
+and `CREATE OR REPLACE` for functions/views. Safe to re-run against an existing DB.
+
+### Migration Repair (existing DB)
+
+If `supabase db push` fails because tables already exist, baseline each applied migration:
+
+```bash
+# List migration status
+npx supabase migration list --project-ref <REF>
+
+# Mark each existing migration as applied
+npx supabase migration repair --status applied 20240203 --project-ref <REF>
+npx supabase migration repair --status applied 20240204 --project-ref <REF>
+# ... continue for all applied migrations
+
+# Then push remaining
+npx supabase db push --project-ref <REF>
+```
+
+Or use the PowerShell script:
+```powershell
+pwsh scripts/supabase.ps1 -Action status
+pwsh scripts/supabase.ps1 -Action repair -MigrationVersion 20240203
+pwsh scripts/supabase.ps1 -Action push
+```
 
 Tables:
 - `scan_results` — Main scan records

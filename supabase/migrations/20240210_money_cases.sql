@@ -1,53 +1,66 @@
 -- Migration: Money Cases v1 (Refund/Dispute Rails)
 -- Adds tables for tracking payment disputes and generating Rail Packs
+-- IDEMPOTENT: safe to run against existing DB
 
 -- Issue types enum
-CREATE TYPE money_case_issue AS ENUM (
-  'unauthorized_charge',
-  'product_not_received',
-  'product_not_as_described',
-  'duplicate_charge',
-  'subscription_cancellation',
-  'refund_not_processed',
-  'scam_fraud',
-  'other'
-);
+DO $$ BEGIN
+  CREATE TYPE money_case_issue AS ENUM (
+    'unauthorized_charge',
+    'product_not_received',
+    'product_not_as_described',
+    'duplicate_charge',
+    'subscription_cancellation',
+    'refund_not_processed',
+    'scam_fraud',
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Case status enum
-CREATE TYPE money_case_status AS ENUM (
-  'draft',
-  'submitted',
-  'in_progress',
-  'resolved',
-  'escalated',
-  'closed'
-);
+DO $$ BEGIN
+  CREATE TYPE money_case_status AS ENUM (
+    'draft',
+    'submitted',
+    'in_progress',
+    'resolved',
+    'escalated',
+    'closed'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Payment method enum
-CREATE TYPE payment_method_type AS ENUM (
-  'credit_card',
-  'debit_card',
-  'paypal',
-  'venmo',
-  'zelle',
-  'cash_app',
-  'apple_pay',
-  'google_pay',
-  'bank_transfer',
-  'crypto',
-  'gift_card',
-  'other'
-);
+DO $$ BEGIN
+  CREATE TYPE payment_method_type AS ENUM (
+    'credit_card',
+    'debit_card',
+    'paypal',
+    'venmo',
+    'zelle',
+    'cash_app',
+    'apple_pay',
+    'google_pay',
+    'bank_transfer',
+    'crypto',
+    'gift_card',
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Desired outcome enum
-CREATE TYPE desired_outcome AS ENUM (
-  'full_refund',
-  'partial_refund',
-  'replacement',
-  'store_credit',
-  'chargeback',
-  'other'
-);
+DO $$ BEGIN
+  CREATE TYPE desired_outcome AS ENUM (
+    'full_refund',
+    'partial_refund',
+    'replacement',
+    'store_credit',
+    'chargeback',
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Main money_cases table
 CREATE TABLE IF NOT EXISTS money_cases (
@@ -88,11 +101,11 @@ CREATE TABLE IF NOT EXISTS money_cases (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_money_cases_share_token ON money_cases(share_token);
-CREATE INDEX idx_money_cases_device ON money_cases(device_id);
-CREATE INDEX idx_money_cases_status ON money_cases(status);
-CREATE INDEX idx_money_cases_created ON money_cases(created_at DESC);
-CREATE INDEX idx_money_cases_merchant ON money_cases(merchant_domain);
+CREATE INDEX IF NOT EXISTS idx_money_cases_share_token ON money_cases(share_token);
+CREATE INDEX IF NOT EXISTS idx_money_cases_device ON money_cases(device_id);
+CREATE INDEX IF NOT EXISTS idx_money_cases_status ON money_cases(status);
+CREATE INDEX IF NOT EXISTS idx_money_cases_created ON money_cases(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_money_cases_merchant ON money_cases(merchant_domain);
 
 COMMENT ON TABLE money_cases IS 'User-submitted payment dispute cases for Rail Pack generation';
 COMMENT ON COLUMN money_cases.rail_pack IS 'Generated Rail Pack with templates, checklists, and guidance';
@@ -111,9 +124,9 @@ CREATE TABLE IF NOT EXISTS case_events (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_case_events_case ON case_events(case_id);
-CREATE INDEX idx_case_events_type ON case_events(event_type);
-CREATE INDEX idx_case_events_created ON case_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_case_events_case ON case_events(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_events_type ON case_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_case_events_created ON case_events(created_at);
 
 COMMENT ON TABLE case_events IS 'Timeline of events for a money case';
 
@@ -134,8 +147,8 @@ CREATE TABLE IF NOT EXISTS case_artifacts (
   uploaded_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_case_artifacts_case ON case_artifacts(case_id);
-CREATE INDEX idx_case_artifacts_type ON case_artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_case_artifacts_case ON case_artifacts(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_artifacts_type ON case_artifacts(artifact_type);
 
 COMMENT ON TABLE case_artifacts IS 'Uploaded proof and documents for money cases';
 
@@ -148,10 +161,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_money_case_updated
-  BEFORE UPDATE ON money_cases
-  FOR EACH ROW
-  EXECUTE FUNCTION update_money_case_timestamp();
+DO $$ BEGIN
+  CREATE TRIGGER trigger_money_case_updated
+    BEFORE UPDATE ON money_cases
+    FOR EACH ROW
+    EXECUTE FUNCTION update_money_case_timestamp();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Function to add case event
 CREATE OR REPLACE FUNCTION add_case_event(

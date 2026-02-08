@@ -1,5 +1,6 @@
 -- Migration: wallet_share_links
 -- REAiL Wallet v1 (Share-to-Scan) - Mass distribution layer
+-- IDEMPOTENT: safe to run against existing DB
 
 CREATE TABLE IF NOT EXISTS wallet_share_links (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,10 +20,10 @@ CREATE TABLE IF NOT EXISTS wallet_share_links (
   ip VARCHAR(45)
 );
 
-CREATE INDEX idx_wallet_share_token ON wallet_share_links(token);
-CREATE INDEX idx_wallet_share_expires ON wallet_share_links(expires_at);
-CREATE INDEX idx_wallet_share_domain ON wallet_share_links(domain);
-CREATE INDEX idx_wallet_share_created ON wallet_share_links(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wallet_share_token ON wallet_share_links(token);
+CREATE INDEX IF NOT EXISTS idx_wallet_share_expires ON wallet_share_links(expires_at);
+CREATE INDEX IF NOT EXISTS idx_wallet_share_domain ON wallet_share_links(domain);
+CREATE INDEX IF NOT EXISTS idx_wallet_share_created ON wallet_share_links(created_at DESC);
 
 COMMENT ON TABLE wallet_share_links IS 'Share-to-Scan links for viral distribution of scan results';
 COMMENT ON COLUMN wallet_share_links.token IS 'Short unique token for shareable URL (/s/:token)';
