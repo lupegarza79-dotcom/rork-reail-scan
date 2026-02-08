@@ -3,10 +3,18 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "bunx rork start -p xhs9qov5t0pnfshy4a0y0 --tunnel",
-    "start-web": "bunx rork start -p xhs9qov5t0pnfshy4a0y0 --web --tunnel",
-    "start-web-dev": "DEBUG=expo* bunx rork start -p xhs9qov5t0pnfshy4a0y0 --web --tunnel",
-    "lint": "expo lint"
+    "start": "npx rork start -p xhs9qov5t0pnfshy4a0y0 --tunnel",
+    "start-web": "npx rork start -p xhs9qov5t0pnfshy4a0y0 --web --tunnel",
+    "start-web-dev": "npx rork start -p xhs9qov5t0pnfshy4a0y0 --web --tunnel",
+    "lint": "expo lint",
+    "expo:start": "npx expo start",
+    "expo:start:tunnel": "npx expo start --tunnel",
+    "expo:start:web": "npx expo start --web",
+    "supabase:link": "npx supabase link",
+    "supabase:push": "npx supabase db push",
+    "supabase:functions:deploy": "npx supabase functions deploy",
+    "test": "pwsh -File scripts/tests.ps1",
+    "deploy": "pwsh -File scripts/deploy.ps1"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -58,7 +66,8 @@
     "@types/react": "~19.1.10",
     "eslint": "^9.31.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "supabase": "^2.0.0"
   },
   "private": true
 }
