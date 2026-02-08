@@ -14,7 +14,12 @@
     "supabase:push": "npx supabase db push",
     "supabase:functions:deploy": "npx supabase functions deploy",
     "test": "pwsh -File scripts/tests.ps1",
-    "deploy": "pwsh -File scripts/deploy.ps1"
+    "deploy": "pwsh -File scripts/deploy.ps1",
+    "sb:login": "npx supabase login",
+    "sb:link": "npx supabase link",
+    "sb:push": "npx supabase db push",
+    "sb:deploy": "pwsh -File scripts/sb-deploy-all.ps1",
+    "make-it-happen": "pwsh -File scripts/make-it-happen.ps1"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
