@@ -2,44 +2,48 @@ import React, { useEffect, useMemo, useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Share, ActivityIndicator, Linking, ScrollView, TextInput, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion, AlertTriangle, Share2, ArrowRight, ExternalLink, RefreshCw, DollarSign, X, ChevronRight, ChevronLeft, Copy, Check, FileText } from 'lucide-react-native';
+import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion, AlertTriangle, Share2, ArrowRight, ExternalLink, RefreshCw, DollarSign, X, ChevronRight, ChevronLeft, FileText } from 'lucide-react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
 import Logo from '@/components/Logo';
 import { resolveShareLink, WalletShareData } from '@/utils/walletShare';
 import { createMoneyCase } from '@/utils/api';
-import type { BadgeType, MoneyCaseIssue, PaymentMethodType, DesiredOutcome, RailPack } from '@/types/scan';
+import type { BadgeType, MoneyCaseIssue, PaymentMethodType, DesiredOutcome } from '@/types/scan';
 
 const BADGE_CONFIG: Record<BadgeType | 'UNKNOWN', { 
   color: string; 
   bg: string; 
-  label: string; 
+  labelEn: string;
+  labelEs: string;
   Icon: typeof Shield;
 }> = {
   VERIFIED: {
     color: Colors.verified,
     bg: Colors.verifiedBg,
-    label: 'Verified Safe',
+    labelEn: 'Verified Safe',
+    labelEs: 'Verificado',
     Icon: ShieldCheck,
   },
   UNVERIFIED: {
     color: Colors.unverified,
     bg: Colors.unverifiedBg,
-    label: 'Unverified',
+    labelEn: 'Unverified',
+    labelEs: 'No verificado',
     Icon: ShieldQuestion,
   },
   HIGH_RISK: {
     color: Colors.highRisk,
     bg: Colors.highRiskBg,
-    label: 'High Risk',
+    labelEn: 'High Risk',
+    labelEs: 'Alto riesgo',
     Icon: ShieldAlert,
   },
   UNKNOWN: {
     color: Colors.textSecondary,
     bg: Colors.backgroundTertiary,
-    label: 'Not Scanned',
+    labelEn: 'Not Scanned',
+    labelEs: 'Sin escanear',
     Icon: Shield,
   },
 };
@@ -90,15 +94,23 @@ interface WizardData {
   locale: 'en' | 'es';
 }
 
+function detectLocale(): 'en' | 'es' {
+  if (Platform.OS === 'web') {
+    try {
+      const lang = navigator.language || '';
+      if (lang.startsWith('es')) return 'es';
+    } catch { /* ignore */ }
+  }
+  return 'en';
+}
+
 export default function ShareLinkScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
   
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
-  const [showRailPack, setShowRailPack] = useState(false);
-  const [railPack, setRailPack] = useState<RailPack | null>(null);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [uiLocale, setUiLocale] = useState<'en' | 'es'>(detectLocale);
   
   const [wizardData, setWizardData] = useState<WizardData>({
     issueType: null,
@@ -108,7 +120,7 @@ export default function ShareLinkScreen() {
     merchantName: '',
     description: '',
     desiredOutcome: null,
-    locale: 'en',
+    locale: detectLocale(),
   });
 
   const { data, isLoading, error, refetch } = useQuery<WalletShareData | null>({
@@ -121,13 +133,16 @@ export default function ShareLinkScreen() {
   const createCaseMutation = useMutation({
     mutationFn: createMoneyCase,
     onSuccess: (response) => {
-      if (response?.rail_pack) {
-        setRailPack(response.rail_pack);
+      if (response?.case_id) {
         setShowWizard(false);
-        setShowRailPack(true);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
+        console.log('[ShareLink] Case created, navigating to refund:', response.case_id);
+        router.push({
+          pathname: '/s/[token]/refund',
+          params: { token: token || '', caseId: response.case_id, locale: wizardData.locale },
+        });
       }
     },
   });
@@ -139,7 +154,7 @@ export default function ShareLinkScreen() {
 
   const config = BADGE_CONFIG[badgeKey] || BADGE_CONFIG.UNKNOWN;
   const BadgeIcon = config.Icon;
-  const isEs = wizardData.locale === 'es';
+  const isEs = uiLocale === 'es';
 
   const handleShare = useCallback(async () => {
     if (Platform.OS !== 'web') {
@@ -151,10 +166,16 @@ export default function ShareLinkScreen() {
       : `https://reail.app/s/${token}`;
     
     const message = data?.badge === 'HIGH_RISK'
-      ? `Warning! This link has been flagged as HIGH RISK by REAiL Scan. Check the report: ${shareUrl}`
+      ? (isEs
+        ? `Advertencia: Este enlace fue marcado como ALTO RIESGO por REAiL Scan. Revisa el reporte: ${shareUrl}`
+        : `Warning! This link has been flagged as HIGH RISK by REAiL Scan. Check the report: ${shareUrl}`)
       : data?.badge === 'VERIFIED'
-      ? `This link has been verified as safe by REAiL Scan: ${shareUrl}`
-      : `Check this link's safety report on REAiL Scan: ${shareUrl}`;
+      ? (isEs
+        ? `Este enlace fue verificado como seguro por REAiL Scan: ${shareUrl}`
+        : `This link has been verified as safe by REAiL Scan: ${shareUrl}`)
+      : (isEs
+        ? `Revisa el reporte de seguridad de este enlace en REAiL Scan: ${shareUrl}`
+        : `Check this link's safety report on REAiL Scan: ${shareUrl}`);
 
     try {
       if (Platform.OS === 'web') {
@@ -169,7 +190,7 @@ export default function ShareLinkScreen() {
     } catch (err) {
       console.log('[ShareLink] Share error:', err);
     }
-  }, [token, data]);
+  }, [token, data, isEs]);
 
   const handleFullScan = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -193,10 +214,11 @@ export default function ShareLinkScreen() {
     setWizardData(prev => ({
       ...prev,
       merchantName: data?.domain || '',
+      locale: uiLocale,
     }));
     setShowWizard(true);
     setWizardStep(0);
-  }, [data?.domain]);
+  }, [data?.domain, uiLocale]);
 
   const { mutate: submitCase } = createCaseMutation;
   
@@ -220,19 +242,6 @@ export default function ShareLinkScreen() {
     });
   }, [wizardData, token, data?.original_url, submitCase]);
 
-  const handleCopyText = useCallback(async (text: string, field: string) => {
-    try {
-      await Clipboard.setStringAsync(text);
-      setCopiedField(field);
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (err) {
-      console.log('[ShareLink] Copy error:', err);
-    }
-  }, []);
-
   const canProceed = useMemo(() => {
     switch (wizardStep) {
       case 0: return !!wizardData.issueType;
@@ -248,20 +257,38 @@ export default function ShareLinkScreen() {
   useEffect(() => {
     if (Platform.OS === 'web' && data) {
       const badgeText = data.badge || 'UNSCANNED';
-      document.title = `${badgeText} - REAiL Safety Report`;
+      const scoreText = data.score !== null ? ` | Score: ${data.score}/100` : '';
+      document.title = `${badgeText}${scoreText} - REAiL Safety Report`;
+
+      const setMeta = (property: string, content: string) => {
+        let tag = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
+        if (!tag) {
+          tag = document.createElement('meta');
+          tag.setAttribute('property', property);
+          document.head.appendChild(tag);
+        }
+        tag.content = content;
+      };
+
+      setMeta('og:title', `${badgeText} - REAiL Safety Report`);
+      setMeta('og:description', `${data.domain}${scoreText}${data.top_red_flags.length > 0 ? ` | ${data.top_red_flags.length} flag(s)` : ''}`);
+      setMeta('og:type', 'website');
+      setMeta('og:url', window.location.href);
+      setMeta('og:image', 'https://reail.app/og/default-share.png');
     }
   }, [data]);
 
   const renderWizardStep = () => {
+    const wEs = wizardData.locale === 'es';
     switch (wizardStep) {
       case 0:
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? '¿Qué pasó?' : 'What happened?'}
+              {wEs ? '¿Qué pasó?' : 'What happened?'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? 'Selecciona el tipo de problema' : 'Select the issue type'}
+              {wEs ? 'Selecciona el tipo de problema' : 'Select the issue type'}
             </Text>
             <View style={styles.optionsGrid}>
               {ISSUE_OPTIONS.map((opt) => (
@@ -272,12 +299,13 @@ export default function ShareLinkScreen() {
                     wizardData.issueType === opt.value && styles.optionButtonSelected,
                   ]}
                   onPress={() => setWizardData(prev => ({ ...prev, issueType: opt.value }))}
+                  testID={`issue-${opt.value}`}
                 >
                   <Text style={[
                     styles.optionButtonText,
                     wizardData.issueType === opt.value && styles.optionButtonTextSelected,
                   ]}>
-                    {isEs ? opt.labelEs : opt.labelEn}
+                    {wEs ? opt.labelEs : opt.labelEn}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -289,13 +317,13 @@ export default function ShareLinkScreen() {
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? 'Monto y fecha' : 'Amount & Date'}
+              {wEs ? 'Monto y fecha' : 'Amount & Date'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? 'Opcional pero ayuda a tu caso' : 'Optional but helps your case'}
+              {wEs ? 'Opcional pero ayuda a tu caso' : 'Optional but helps your case'}
             </Text>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>{isEs ? 'Monto' : 'Amount'}</Text>
+              <Text style={styles.inputLabel}>{wEs ? 'Monto' : 'Amount'}</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="$0.00"
@@ -303,16 +331,18 @@ export default function ShareLinkScreen() {
                 value={wizardData.amount}
                 onChangeText={(text) => setWizardData(prev => ({ ...prev, amount: text }))}
                 keyboardType="decimal-pad"
+                testID="amount-input"
               />
             </View>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>{isEs ? 'Fecha de transacción' : 'Transaction Date'}</Text>
+              <Text style={styles.inputLabel}>{wEs ? 'Fecha de transacción' : 'Transaction Date'}</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor={Colors.textTertiary}
                 value={wizardData.transactionDate}
                 onChangeText={(text) => setWizardData(prev => ({ ...prev, transactionDate: text }))}
+                testID="date-input"
               />
             </View>
           </View>
@@ -322,10 +352,10 @@ export default function ShareLinkScreen() {
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? 'Método de pago' : 'Payment Method'}
+              {wEs ? 'Método de pago' : 'Payment Method'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? '¿Cómo pagaste?' : 'How did you pay?'}
+              {wEs ? '¿Cómo pagaste?' : 'How did you pay?'}
             </Text>
             <ScrollView style={styles.optionsScroll} showsVerticalScrollIndicator={false}>
               <View style={styles.optionsGrid}>
@@ -337,6 +367,7 @@ export default function ShareLinkScreen() {
                       wizardData.paymentMethod === opt.value && styles.optionButtonSelected,
                     ]}
                     onPress={() => setWizardData(prev => ({ ...prev, paymentMethod: opt.value }))}
+                    testID={`payment-${opt.value}`}
                   >
                     <Text style={[
                       styles.optionButtonText,
@@ -355,19 +386,20 @@ export default function ShareLinkScreen() {
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? 'Comercio / Sitio' : 'Merchant / Site'}
+              {wEs ? 'Comercio / Sitio' : 'Merchant / Site'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? '¿Dónde hiciste la compra?' : 'Where did you make the purchase?'}
+              {wEs ? '¿Dónde hiciste la compra?' : 'Where did you make the purchase?'}
             </Text>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>{isEs ? 'Nombre del comercio' : 'Merchant Name'}</Text>
+              <Text style={styles.inputLabel}>{wEs ? 'Nombre del comercio' : 'Merchant Name'}</Text>
               <TextInput
                 style={styles.textInput}
-                placeholder={isEs ? 'Ej: TiendaXYZ' : 'E.g. ShopXYZ'}
+                placeholder={wEs ? 'Ej: TiendaXYZ' : 'E.g. ShopXYZ'}
                 placeholderTextColor={Colors.textTertiary}
                 value={wizardData.merchantName}
                 onChangeText={(text) => setWizardData(prev => ({ ...prev, merchantName: text }))}
+                testID="merchant-input"
               />
             </View>
           </View>
@@ -377,25 +409,26 @@ export default function ShareLinkScreen() {
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? 'Descripción (opcional)' : 'Description (optional)'}
+              {wEs ? 'Descripción (opcional)' : 'Description (optional)'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? 'Agrega detalles o sube pruebas' : 'Add details or upload proof'}
+              {wEs ? 'Agrega detalles sobre lo que pasó' : 'Add details about what happened'}
             </Text>
             <View style={styles.inputGroup}>
               <TextInput
                 style={[styles.textInput, styles.textArea]}
-                placeholder={isEs ? 'Describe lo que pasó...' : 'Describe what happened...'}
+                placeholder={wEs ? 'Describe lo que pasó...' : 'Describe what happened...'}
                 placeholderTextColor={Colors.textTertiary}
                 value={wizardData.description}
                 onChangeText={(text) => setWizardData(prev => ({ ...prev, description: text }))}
                 multiline
                 numberOfLines={4}
                 textAlignVertical="top"
+                testID="description-input"
               />
             </View>
             <Text style={styles.proofNote}>
-              {isEs ? '📎 Puedes agregar capturas de pantalla después' : '📎 You can add screenshots later'}
+              {wEs ? '📎 Puedes agregar capturas de pantalla después' : '📎 You can add screenshots later'}
             </Text>
           </View>
         );
@@ -404,10 +437,10 @@ export default function ShareLinkScreen() {
         return (
           <View style={styles.wizardStepContent}>
             <Text style={styles.wizardStepTitle}>
-              {isEs ? '¿Qué resultado deseas?' : 'Desired Outcome'}
+              {wEs ? '¿Qué resultado deseas?' : 'Desired Outcome'}
             </Text>
             <Text style={styles.wizardStepSubtitle}>
-              {isEs ? 'Selecciona tu resolución preferida' : 'Select your preferred resolution'}
+              {wEs ? 'Selecciona tu resolución preferida' : 'Select your preferred resolution'}
             </Text>
             <View style={styles.optionsGrid}>
               {OUTCOME_OPTIONS.map((opt) => (
@@ -418,12 +451,13 @@ export default function ShareLinkScreen() {
                     wizardData.desiredOutcome === opt.value && styles.optionButtonSelected,
                   ]}
                   onPress={() => setWizardData(prev => ({ ...prev, desiredOutcome: opt.value }))}
+                  testID={`outcome-${opt.value}`}
                 >
                   <Text style={[
                     styles.optionButtonText,
                     wizardData.desiredOutcome === opt.value && styles.optionButtonTextSelected,
                   ]}>
-                    {isEs ? opt.labelEs : opt.labelEn}
+                    {wEs ? opt.labelEs : opt.labelEn}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -439,17 +473,14 @@ export default function ShareLinkScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <Stack.Screen 
-          options={{ 
-            headerShown: false,
-            title: 'REAiL Safety Report',
-          }} 
-        />
+        <Stack.Screen options={{ headerShown: false, title: 'REAiL Safety Report' }} />
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.loadingContainer}>
             <Logo size="small" />
             <ActivityIndicator size="large" color={Colors.primary} style={styles.loader} />
-            <Text style={styles.loadingText}>Loading safety report...</Text>
+            <Text style={styles.loadingText}>
+              {isEs ? 'Cargando reporte de seguridad...' : 'Loading safety report...'}
+            </Text>
           </View>
         </SafeAreaView>
       </View>
@@ -464,16 +495,20 @@ export default function ShareLinkScreen() {
           <View style={styles.errorContainer}>
             <Logo size="small" />
             <ShieldAlert size={64} color={Colors.highRisk} style={styles.errorIcon} />
-            <Text style={styles.errorTitle}>Link Not Found</Text>
-            <Text style={styles.errorText}>
-              This share link may have expired or does not exist.
+            <Text style={styles.errorTitle}>
+              {isEs ? 'Enlace no encontrado' : 'Link Not Found'}
             </Text>
-            <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+            <Text style={styles.errorText}>
+              {isEs
+                ? 'Este enlace compartido puede haber expirado o no existe.'
+                : 'This share link may have expired or does not exist.'}
+            </Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => refetch()} testID="retry-btn">
               <RefreshCw size={18} color={Colors.text} />
-              <Text style={styles.retryText}>Try Again</Text>
+              <Text style={styles.retryText}>{isEs ? 'Reintentar' : 'Try Again'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.homeButton} onPress={() => router.push('/')}>
-              <Text style={styles.homeText}>Go to Home</Text>
+              <Text style={styles.homeText}>{isEs ? 'Ir al inicio' : 'Go to Home'}</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -492,8 +527,26 @@ export default function ShareLinkScreen() {
       <SafeAreaView style={styles.safeArea}>
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
-            <Logo size="small" />
-            <Text style={styles.headerSubtitle}>Safety Report</Text>
+            <View style={styles.headerRow}>
+              <Logo size="small" />
+              <View style={styles.langToggleSmall}>
+                <TouchableOpacity
+                  style={[styles.langBtnSmall, uiLocale === 'en' && styles.langBtnSmallActive]}
+                  onPress={() => setUiLocale('en')}
+                >
+                  <Text style={[styles.langBtnSmallText, uiLocale === 'en' && styles.langBtnSmallTextActive]}>EN</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.langBtnSmall, uiLocale === 'es' && styles.langBtnSmallActive]}
+                  onPress={() => setUiLocale('es')}
+                >
+                  <Text style={[styles.langBtnSmallText, uiLocale === 'es' && styles.langBtnSmallTextActive]}>ES</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <Text style={styles.headerSubtitle}>
+              {isEs ? 'Reporte de Seguridad' : 'Safety Report'}
+            </Text>
           </View>
 
           <View style={styles.content}>
@@ -501,24 +554,30 @@ export default function ShareLinkScreen() {
               <View style={[styles.badgeIconContainer, { backgroundColor: config.bg }]}>
                 <BadgeIcon size={48} color={config.color} />
               </View>
-              <Text style={[styles.badgeLabel, { color: config.color }]}>{config.label}</Text>
+              <Text style={[styles.badgeLabel, { color: config.color }]}>
+                {isEs ? config.labelEs : config.labelEn}
+              </Text>
               {data.score !== null && (
                 <View style={styles.scoreRow}>
-                  <Text style={styles.scoreLabel}>Trust Score</Text>
+                  <Text style={styles.scoreLabel}>
+                    {isEs ? 'Puntuación' : 'Trust Score'}
+                  </Text>
                   <Text style={[styles.scoreValue, { color: config.color }]}>{data.score}/100</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.urlCard}>
-              <Text style={styles.urlLabel}>Scanned Link</Text>
+              <Text style={styles.urlLabel}>{isEs ? 'Enlace escaneado' : 'Scanned Link'}</Text>
               <Text style={styles.urlDomain} numberOfLines={1}>{data.domain}</Text>
               <Text style={styles.urlFull} numberOfLines={2}>{data.original_url}</Text>
             </View>
 
             {data.top_red_flags && data.top_red_flags.length > 0 && (
               <View style={styles.flagsCard}>
-                <Text style={styles.flagsTitle}>Red Flags Detected</Text>
+                <Text style={styles.flagsTitle}>
+                  {isEs ? 'Alertas detectadas' : 'Red Flags Detected'}
+                </Text>
                 {data.top_red_flags.map((flag, idx) => (
                   <View key={idx} style={styles.flagRow}>
                     <AlertTriangle size={16} color={Colors.unverified} />
@@ -530,7 +589,9 @@ export default function ShareLinkScreen() {
 
             {data.next_action && (
               <View style={styles.actionCard}>
-                <Text style={styles.actionTitle}>Recommended Action</Text>
+                <Text style={styles.actionTitle}>
+                  {isEs ? 'Acción recomendada' : 'Recommended Action'}
+                </Text>
                 <Text style={styles.actionText}>{data.next_action}</Text>
               </View>
             )}
@@ -540,9 +601,17 @@ export default function ShareLinkScreen() {
                 style={styles.paidButton}
                 onPress={handleStartWizard}
                 activeOpacity={0.85}
+                testID="paid-cta"
               >
                 <DollarSign size={20} color={Colors.text} />
-                <Text style={styles.paidButtonText}>I Already Paid</Text>
+                <View style={styles.paidButtonTextContainer}>
+                  <Text style={styles.paidButtonText}>
+                    {isEs ? 'Ya pagué y necesito ayuda' : 'I already paid and need help'}
+                  </Text>
+                  <Text style={styles.paidButtonSubtext}>
+                    {isEs ? 'Genera tu kit de reembolso gratis' : 'Generate your free refund kit'}
+                  </Text>
+                </View>
                 <ChevronRight size={18} color={Colors.text} />
               </TouchableOpacity>
             )}
@@ -552,9 +621,12 @@ export default function ShareLinkScreen() {
                 style={[styles.primaryButton, { backgroundColor: Colors.primary }]} 
                 onPress={handleShare}
                 activeOpacity={0.85}
+                testID="share-btn"
               >
                 <Share2 size={20} color={Colors.text} />
-                <Text style={styles.primaryButtonText}>Share This Report</Text>
+                <Text style={styles.primaryButtonText}>
+                  {isEs ? 'Compartir reporte' : 'Share This Report'}
+                </Text>
               </TouchableOpacity>
 
               {!data.badge && (
@@ -562,9 +634,12 @@ export default function ShareLinkScreen() {
                   style={styles.secondaryButton} 
                   onPress={handleFullScan}
                   activeOpacity={0.85}
+                  testID="full-scan-btn"
                 >
                   <Shield size={18} color={Colors.primary} />
-                  <Text style={styles.secondaryButtonText}>Run Full Scan</Text>
+                  <Text style={styles.secondaryButtonText}>
+                    {isEs ? 'Escaneo completo' : 'Run Full Scan'}
+                  </Text>
                   <ArrowRight size={16} color={Colors.primary} />
                 </TouchableOpacity>
               )}
@@ -576,14 +651,26 @@ export default function ShareLinkScreen() {
                   activeOpacity={0.7}
                 >
                   <ExternalLink size={16} color={Colors.textSecondary} />
-                  <Text style={styles.linkButtonText}>Open Original Link</Text>
+                  <Text style={styles.linkButtonText}>
+                    {isEs ? 'Abrir enlace original' : 'Open Original Link'}
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
 
+            <View style={styles.disclaimerCard}>
+              <Text style={styles.disclaimerText}>
+                {isEs
+                  ? 'Verificación basada en riesgo usando señales públicas + análisis automatizado. No es verdad absoluta. REAiL no garantiza resultados específicos.'
+                  : 'Risk-based verification using public signals + automated analysis. Not absolute truth. REAiL does not guarantee specific outcomes.'}
+              </Text>
+            </View>
+
             <View style={styles.footer}>
               <Text style={styles.footerText}>
-                Scanned {data.view_count ? `${data.view_count} times` : 'recently'}
+                {isEs
+                  ? `Visto ${data.view_count ? `${data.view_count} veces` : 'recientemente'}`
+                  : `Scanned ${data.view_count ? `${data.view_count} times` : 'recently'}`}
               </Text>
               <Text style={styles.footerPowered}>Powered by REAiL Systems</Text>
             </View>
@@ -604,7 +691,7 @@ export default function ShareLinkScreen() {
                 <X size={24} color={Colors.text} />
               </TouchableOpacity>
               <Text style={styles.modalTitle}>
-                {isEs ? 'Recupera tu dinero' : 'Get Your Money Back'}
+                {wizardData.locale === 'es' ? 'Recupera tu dinero' : 'Get Your Money Back'}
               </Text>
               <View style={styles.langToggle}>
                 <TouchableOpacity
@@ -638,6 +725,16 @@ export default function ShareLinkScreen() {
               {renderWizardStep()}
             </View>
 
+            {createCaseMutation.isError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>
+                  {wizardData.locale === 'es'
+                    ? 'Error al crear el caso. Intenta de nuevo.'
+                    : 'Failed to create case. Please try again.'}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.wizardFooter}>
               {wizardStep > 0 && (
                 <TouchableOpacity
@@ -645,7 +742,9 @@ export default function ShareLinkScreen() {
                   onPress={() => setWizardStep(prev => prev - 1)}
                 >
                   <ChevronLeft size={20} color={Colors.text} />
-                  <Text style={styles.backButtonText}>{isEs ? 'Atrás' : 'Back'}</Text>
+                  <Text style={styles.backButtonText}>
+                    {wizardData.locale === 'es' ? 'Atrás' : 'Back'}
+                  </Text>
                 </TouchableOpacity>
               )}
               <View style={{ flex: 1 }} />
@@ -654,8 +753,11 @@ export default function ShareLinkScreen() {
                   style={[styles.nextButton, !canProceed && styles.nextButtonDisabled]}
                   onPress={() => canProceed && setWizardStep(prev => prev + 1)}
                   disabled={!canProceed}
+                  testID="wizard-next"
                 >
-                  <Text style={styles.nextButtonText}>{isEs ? 'Siguiente' : 'Next'}</Text>
+                  <Text style={styles.nextButtonText}>
+                    {wizardData.locale === 'es' ? 'Siguiente' : 'Next'}
+                  </Text>
                   <ChevronRight size={20} color={Colors.text} />
                 </TouchableOpacity>
               ) : (
@@ -663,6 +765,7 @@ export default function ShareLinkScreen() {
                   style={[styles.submitButton, (!canProceed || createCaseMutation.isPending) && styles.nextButtonDisabled]}
                   onPress={handleSubmitCase}
                   disabled={!canProceed || createCaseMutation.isPending}
+                  testID="wizard-submit"
                 >
                   {createCaseMutation.isPending ? (
                     <ActivityIndicator size="small" color={Colors.text} />
@@ -670,108 +773,13 @@ export default function ShareLinkScreen() {
                     <>
                       <FileText size={18} color={Colors.text} />
                       <Text style={styles.submitButtonText}>
-                        {isEs ? 'Generar Rail Pack' : 'Generate Rail Pack'}
+                        {wizardData.locale === 'es' ? 'Generar Rail Pack' : 'Generate Rail Pack'}
                       </Text>
                     </>
                   )}
                 </TouchableOpacity>
               )}
             </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={showRailPack}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowRailPack(false)}
-      >
-        <View style={styles.modalContainer}>
-          <SafeAreaView style={styles.modalSafeArea}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowRailPack(false)} style={styles.closeButton}>
-                <X size={24} color={Colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>
-                {railPack?.locale === 'es' ? 'Tu Rail Pack' : 'Your Rail Pack'}
-              </Text>
-              <View style={{ width: 60 }} />
-            </View>
-
-            <ScrollView style={styles.railPackScroll} showsVerticalScrollIndicator={false}>
-              {railPack && (
-                <View style={styles.railPackContent}>
-                  <View style={styles.railPackSection}>
-                    <View style={styles.railPackSectionHeader}>
-                      <Text style={styles.railPackSectionTitle}>
-                        {railPack.locale === 'es' ? '📧 Plantilla de solicitud' : '📧 Refund Request Template'}
-                      </Text>
-                      <TouchableOpacity
-                        style={styles.copyButton}
-                        onPress={() => handleCopyText(railPack.refund_request_template, 'refund')}
-                      >
-                        {copiedField === 'refund' ? (
-                          <Check size={18} color={Colors.verified} />
-                        ) : (
-                          <Copy size={18} color={Colors.primary} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.templateBox}>
-                      <Text style={styles.templateText}>{railPack.refund_request_template}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.railPackSection}>
-                    <View style={styles.railPackSectionHeader}>
-                      <Text style={styles.railPackSectionTitle}>
-                        {railPack.locale === 'es' ? '📝 Plantilla de seguimiento' : '📝 Follow-up Template'}
-                      </Text>
-                      <TouchableOpacity
-                        style={styles.copyButton}
-                        onPress={() => handleCopyText(railPack.follow_up_template, 'followup')}
-                      >
-                        {copiedField === 'followup' ? (
-                          <Check size={18} color={Colors.verified} />
-                        ) : (
-                          <Copy size={18} color={Colors.primary} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.templateBox}>
-                      <Text style={styles.templateText}>{railPack.follow_up_template}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.railPackSection}>
-                    <Text style={styles.railPackSectionTitle}>
-                      {railPack.locale === 'es' ? '🚀 Checklist de escalación' : '🚀 Escalation Checklist'}
-                    </Text>
-                    <View style={styles.checklistBox}>
-                      {railPack.escalation_checklist.map((item, idx) => (
-                        <Text key={idx} style={styles.checklistItem}>{item}</Text>
-                      ))}
-                    </View>
-                  </View>
-
-                  <View style={styles.railPackSection}>
-                    <Text style={styles.railPackSectionTitle}>
-                      {railPack.locale === 'es' ? '📎 Checklist de evidencia' : '📎 Evidence Checklist'}
-                    </Text>
-                    <View style={styles.checklistBox}>
-                      {railPack.evidence_checklist.map((item, idx) => (
-                        <Text key={idx} style={styles.checklistItem}>{item}</Text>
-                      ))}
-                    </View>
-                  </View>
-
-                  <View style={styles.disclaimerBox}>
-                    <Text style={styles.disclaimerText}>{railPack.disclaimer}</Text>
-                  </View>
-                </View>
-              )}
-            </ScrollView>
           </SafeAreaView>
         </View>
       </Modal>
@@ -796,12 +804,43 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingHorizontal: 16,
+  },
   headerSubtitle: {
     fontSize: 14,
     color: Colors.textSecondary,
     marginTop: 8,
     letterSpacing: 1,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
+  },
+  langToggleSmall: {
+    position: 'absolute' as const,
+    right: 16,
+    flexDirection: 'row',
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 6,
+    padding: 2,
+  },
+  langBtnSmall: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  langBtnSmallActive: {
+    backgroundColor: Colors.primary,
+  },
+  langBtnSmallText: {
+    fontSize: 11,
+    fontWeight: '600' as const,
+    color: Colors.textTertiary,
+  },
+  langBtnSmallTextActive: {
+    color: Colors.text,
   },
   content: {
     flex: 1,
@@ -913,7 +952,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textTertiary,
     marginBottom: 6,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: 0.5,
   },
   urlDomain: {
@@ -965,7 +1004,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.accent,
     marginBottom: 8,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: 0.5,
     fontWeight: '600' as const,
   },
@@ -980,14 +1019,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     backgroundColor: Colors.highRisk,
-    height: 56,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderRadius: 16,
     marginBottom: 16,
   },
+  paidButtonTextContainer: {
+    flex: 1,
+  },
   paidButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700' as const,
     color: Colors.text,
+  },
+  paidButtonSubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
   },
   buttonsContainer: {
     gap: 12,
@@ -1032,10 +1080,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
   },
+  disclaimerCard: {
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 20,
+  },
+  disclaimerText: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
   footer: {
     alignItems: 'center',
     paddingVertical: 24,
-    marginTop: 'auto',
   },
   footerText: {
     fontSize: 13,
@@ -1178,13 +1237,25 @@ const styles = StyleSheet.create({
   },
   textArea: {
     minHeight: 120,
-    textAlignVertical: 'top',
+    textAlignVertical: 'top' as const,
   },
   proofNote: {
     fontSize: 13,
     color: Colors.textTertiary,
     textAlign: 'center',
     marginTop: 8,
+  },
+  errorBanner: {
+    backgroundColor: Colors.highRiskBg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.highRisk,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: Colors.highRisk,
+    textAlign: 'center',
   },
   wizardFooter: {
     flexDirection: 'row',
@@ -1235,66 +1306,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.text,
-  },
-  railPackScroll: {
-    flex: 1,
-  },
-  railPackContent: {
-    padding: 20,
-  },
-  railPackSection: {
-    marginBottom: 24,
-  },
-  railPackSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  railPackSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  copyButton: {
-    padding: 8,
-  },
-  templateBox: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  templateText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  checklistBox: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  checklistItem: {
-    fontSize: 14,
-    color: Colors.text,
-    lineHeight: 24,
-    marginBottom: 4,
-  },
-  disclaimerBox: {
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
-  },
-  disclaimerText: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    lineHeight: 18,
-    textAlign: 'center',
   },
 });

@@ -62,6 +62,12 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
+        name="tools" 
+        options={{ 
+          animation: 'slide_from_right',
+        }} 
+      />
+      <Stack.Screen 
         name="watchlist" 
         options={{ 
           animation: 'slide_from_right',

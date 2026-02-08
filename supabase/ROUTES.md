@@ -62,6 +62,8 @@ supabase secrets set VERBOSE_LOGGING=true
 | `cache-cleanup` | GET `?health` | Health check |
 | `wallet-share` | POST | Create shareable link with scan verdict |
 | `wallet-share` | GET `?token=` | Resolve a share link |
+| `money-case` | POST | Create a money case and generate Rail Pack |
+| `money-case` | GET `?case_id=` | Fetch case with Rail Pack, events, artifacts |
 
 ## Deployment
 
@@ -74,6 +76,7 @@ supabase functions deploy report-scan
 supabase functions deploy quick-scan
 supabase functions deploy cache-cleanup
 supabase functions deploy wallet-share
+supabase functions deploy money-case
 ```
 
 ## Production Scheduler (Cache Cleanup)
@@ -348,6 +351,84 @@ Error responses:
 - `404` - Share link not found
 - `410` - Share link expired
 
+### POST /money-case
+Create a money case (refund/dispute) and generate a Rail Pack.
+
+Request:
+```json
+{
+  "share_token": "aBc123XyZ",
+  "issue_type": "product_not_received",
+  "amount_cents": 4999,
+  "currency": "USD",
+  "transaction_date": "2024-01-15",
+  "payment_method": "credit_card",
+  "merchant_name": "ShopXYZ",
+  "merchant_url": "https://shopxyz.com",
+  "description": "Never received my order",
+  "desired_outcome": "full_refund",
+  "locale": "en"
+}
+```
+Response (201):
+```json
+{
+  "ok": true,
+  "case_id": "uuid",
+  "status": "submitted",
+  "rail_pack": {
+    "locale": "en",
+    "generated_at": "2024-02-03T12:00:00.000Z",
+    "refund_request_template": "Subject: Refund Request...",
+    "follow_up_template": "Subject: Follow-Up...",
+    "escalation_checklist": ["..."],
+    "evidence_checklist": ["..."],
+    "disclaimer": "DISCLAIMER: This information is for guidance only..."
+  },
+  "created_at": "2024-02-03T12:00:00.000Z"
+}
+```
+
+### GET /money-case?case_id=uuid
+Fetch a money case with its Rail Pack, events timeline, and artifacts.
+
+Response:
+```json
+{
+  "ok": true,
+  "case": {
+    "id": "uuid",
+    "share_token": "aBc123XyZ",
+    "issue_type": "product_not_received",
+    "status": "submitted",
+    "amount_cents": 4999,
+    "currency": "USD",
+    "transaction_date": "2024-01-15",
+    "payment_method": "credit_card",
+    "merchant_name": "ShopXYZ",
+    "merchant_url": "https://shopxyz.com",
+    "description": "Never received my order",
+    "desired_outcome": "full_refund",
+    "locale": "en",
+    "created_at": "2024-02-03T12:00:00.000Z",
+    "updated_at": "2024-02-03T12:00:00.000Z"
+  },
+  "rail_pack": { "...same as POST response..." },
+  "events": [
+    {
+      "id": "uuid",
+      "case_id": "uuid",
+      "event_type": "case_created",
+      "title": "Case Created",
+      "description": "Rail Pack generated with templates and checklists",
+      "metadata": {},
+      "created_at": "2024-02-03T12:00:00.000Z"
+    }
+  ],
+  "artifacts": []
+}
+```
+
 ## Database Tables
 
 Run migrations in order:
@@ -471,6 +552,7 @@ curl -s "$BASE/scan-history?limit=20&offset=0" \
 | Dashboard / history | `scan-history` | Paginated, filtered by device_id |
 | Community flagging | `report-scan` | Feeds into pattern_match provider |
 | Shareable verdict link | `wallet-share` | Viral distribution, OG preview cards |
+| Refund/dispute case | `money-case` | Create case + get Rail Pack templates |
 
 ### Caching & Timeouts
 
