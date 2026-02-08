@@ -55,6 +55,13 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
+        name="s/[token]" 
+        options={{ 
+          animation: 'fade',
+          headerShown: false,
+        }} 
+      />
+      <Stack.Screen 
         name="watchlist" 
         options={{ 
           animation: 'slide_from_right',

@@ -60,6 +60,8 @@ supabase secrets set VERBOSE_LOGGING=true
 | `quick-scan` | GET `?url=` | Fast cached lookup for browser extensions |
 | `cache-cleanup` | POST | Cleanup expired cache entries |
 | `cache-cleanup` | GET `?health` | Health check |
+| `wallet-share` | POST | Create shareable link with scan verdict |
+| `wallet-share` | GET `?token=` | Resolve a share link |
 
 ## Deployment
 
@@ -71,6 +73,7 @@ supabase functions deploy scan-history
 supabase functions deploy report-scan
 supabase functions deploy quick-scan
 supabase functions deploy cache-cleanup
+supabase functions deploy wallet-share
 ```
 
 ## Production Scheduler (Cache Cleanup)
@@ -293,6 +296,58 @@ Response:
 
 If no cached/recent scan exists, `badge` and `score` are `null` with a `message` field suggesting a full scan.
 
+### POST /wallet-share
+Create a shareable link for a URL. Leverages quick-scan cache/DB lookup internally.
+
+Request:
+```json
+{
+  "url": "https://example.com",
+  "expiry_hours": 72
+}
+```
+Response (201):
+```json
+{
+  "ok": true,
+  "token": "aBc123XyZ",
+  "share_url": "/s/aBc123XyZ",
+  "original_url": "https://example.com",
+  "domain": "example.com",
+  "badge": "VERIFIED" | "UNVERIFIED" | "HIGH_RISK" | null,
+  "score": 85 | null,
+  "top_red_flags": ["Suspicious redirect detected"],
+  "next_action": "This link appears safe, but always verify unexpected requests.",
+  "expires_at": "2024-02-06T12:00:00.000Z",
+  "needs_full_scan": false
+}
+```
+
+### GET /wallet-share?token=aBc123XyZ
+Resolve a share link and get the scan verdict.
+
+Response:
+```json
+{
+  "ok": true,
+  "token": "aBc123XyZ",
+  "original_url": "https://example.com",
+  "domain": "example.com",
+  "badge": "VERIFIED",
+  "score": 85,
+  "top_red_flags": [],
+  "next_action": "This link appears safe.",
+  "scan_id": "uuid" | null,
+  "created_at": "2024-02-03T12:00:00.000Z",
+  "expires_at": "2024-02-06T12:00:00.000Z",
+  "view_count": 5
+}
+```
+
+Error responses:
+- `404` - Share link not found
+- `410` - Share link expired
+
 ## Database Tables
 
 Run migrations in order:
@@ -302,6 +357,7 @@ Run migrations in order:
 4. `supabase/migrations/20240206_rate_limits_telemetry.sql` — Rate limits + telemetry tables and view
 5. `supabase/migrations/20240207_rate_limits_telemetry_update.sql` — Extended rate limits + telemetry metadata
 6. `supabase/migrations/20240208_rate_limits_telemetry_phase1.sql` — Phase 1 schema alignment
+7. `supabase/migrations/20240209_wallet_share_links.sql` — Wallet share links for viral distribution
 
 Tables:
 - `scan_results` — Main scan records
@@ -310,6 +366,7 @@ Tables:
 - `scan_cache` — URL scan cache (key, value jsonb, expires_at)
 - `rate_limits` — Request counters for rate limiting (endpoint/device/ip windowed, count/limit)
 - `scan_telemetry_events` — Telemetry events (endpoint, status, latency_ms, cache_hit)
+- `wallet_share_links` — Shareable verdict links (token, original_url, scan_id, badge, score, expires_at)
 
 Views:
 - `scan_with_evidence` — Join of results + evidence
@@ -409,6 +466,7 @@ curl -s "$BASE/scan-history?limit=20&offset=0" \
 | Shared report link | `scan-result` | Fetch by scan_id for deep links |
 | Dashboard / history | `scan-history` | Paginated, filtered by device_id |
 | Community flagging | `report-scan` | Feeds into pattern_match provider |
+| Shareable verdict link | `wallet-share` | Viral distribution, OG preview cards |
 
 ### Caching & Timeouts
 
