@@ -17,14 +17,14 @@ import { getProviderLabel } from "./evidenceEngine";
 export const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL as string) ??
-  "https://api.reail.app";
+  "https://favpzctusdjnnoyoabrz.supabase.co/functions/v1";
 
 const ANON_KEY =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
   (Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY as string) ??
   "";
 
-async function headers(): Promise<Record<string, string>> {
+export async function headers(): Promise<Record<string, string>> {
   const deviceId = await getDeviceId();
   const h: Record<string, string> = {
     Accept: "application/json",
@@ -103,7 +103,7 @@ export async function fetchScanResultById(scanId: string): Promise<BackendScanRe
 
   try {
     console.log("[API] fetchScanResultById:", scanId);
-    const resp = await fetch(`${BASE_URL}/scan-result?scanId=${encodeURIComponent(scanId)}`, {
+    const resp = await fetch(`${BASE_URL}/scan-result?id=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });
@@ -261,7 +261,7 @@ export async function fetchScanEvidence(scanId: string): Promise<EvidenceCard[] 
 
   try {
     console.log("[API] fetchScanEvidence:", scanId);
-    const resp = await fetch(`${BASE_URL}/scan-evidence?scanId=${encodeURIComponent(scanId)}`, {
+    const resp = await fetch(`${BASE_URL}/scan-evidence?id=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });
@@ -386,7 +386,8 @@ export async function fetchScanHistory(options?: { limit?: number; offset?: numb
   const offset = options?.offset ?? 0;
 
   try {
-    const resp = await fetch(`${BASE_URL}/scan-history?limit=${limit}&offset=${offset}`, {
+    const deviceId = await getDeviceId();
+    const resp = await fetch(`${BASE_URL}/scan-history?device_id=${encodeURIComponent(deviceId)}&limit=${limit}&offset=${offset}`, {
       method: "GET",
       headers: await headers(),
     });

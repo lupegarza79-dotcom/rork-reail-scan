@@ -4,7 +4,7 @@ import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
 import { cacheScanResult } from "./scanCache";
-import { postScanUrl, contentScan } from "./api";
+import { postScanUrl, contentScan, quickScan as quickScanApi } from "./api";
 import { calculateScoreFromEvidence, PLACEHOLDER_EVIDENCE } from "./evidenceEngine";
 
 import type { ScanResult, BadgeType, ScanReasons, EvidenceCard } from "@/types/scan";
@@ -165,7 +165,34 @@ class ScanService {
     const url = this.normalizeUrl(request.url);
     const advanced = request.advancedScan ?? settings.advancedScan;
 
-    // Try content-scan endpoint first for real Evidence Pack
+    // Try quick-scan GET first (fast verdict)
+    try {
+      console.log("[ScanService] Trying quick-scan GET for:", url);
+      const qr = await quickScanApi(url);
+
+      if (qr && qr.scan_id && qr.badge) {
+        console.log("[ScanService] quick-scan ok:", qr.badge, qr.score);
+
+        const reasons = this.buildReasonsFromRedFlags(qr.top_red_flags || []);
+        const result: ScanResult = {
+          id: qr.scan_id,
+          url,
+          domain: qr.domain || this.extractDomain(url),
+          platform: detectPlatform(url),
+          badge: qr.badge as BadgeType,
+          score: qr.score ?? 50,
+          reasons,
+          timestamp: Date.now(),
+        };
+
+        await this.recordLocalStorage(result);
+        return result;
+      }
+    } catch (err) {
+      console.log("[ScanService] quick-scan failed, trying content-scan:", err);
+    }
+
+    // Try content-scan POST for full Evidence Pack
     try {
       console.log("[ScanService] Trying content-scan for:", url);
       const contentResult = await contentScan(url);
@@ -173,7 +200,6 @@ class ScanService {
       if (contentResult && contentResult.evidence?.length) {
         console.log("[ScanService] Got real evidence pack:", contentResult.evidence.length, "cards");
         
-        // Calculate score from evidence if not provided
         const breakdown = contentResult.scoreBreakdown || calculateScoreFromEvidence(contentResult.evidence);
         
         const result: ScanResult = {
@@ -312,6 +338,27 @@ class ScanService {
           };
           break;
       }
+    }
+
+    return reasons;
+  }
+
+  private buildReasonsFromRedFlags(flags: string[]): ScanReasons {
+    const reasons: ScanReasons = {
+      A: { title: "Media Integrity", summary: "No media analysis available.", details: [] },
+      B: { title: "Duplicate / Re-used Media", summary: "No duplicate check performed.", details: [] },
+      C: { title: "Claims vs Public Signals", summary: "Claims not analyzed.", details: [] },
+      D: { title: "Account Signals", summary: "Account not analyzed.", details: [] },
+      E: { title: "Link Safety", summary: "Link analysis pending.", details: [] },
+      F: { title: "Patterns / Reports", summary: "Pattern matching pending.", details: [] },
+    };
+
+    if (flags.length > 0) {
+      reasons.F = {
+        title: "Patterns / Reports",
+        summary: flags[0] || "Signals detected.",
+        details: flags,
+      };
     }
 
     return reasons;

@@ -13,8 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, Stack } from "expo-router";
 import { ArrowLeft, BadgeCheck, Shield, Send, Info, Globe, Mail } from "lucide-react-native";
 import Colors from "@/constants/colors";
-import { BASE_URL } from "@/utils/api";
-import { getDeviceId } from "@/utils/deviceId";
+import { BASE_URL, headers as apiHeaders } from "@/utils/api";
 
 type ProofMethod = "dns_txt" | "email_verification" | "documentation";
 
@@ -41,7 +40,7 @@ export default function ClaimScreen() {
     setSubmitting(true);
 
     try {
-      const deviceId = await getDeviceId();
+      const h = await apiHeaders();
       const links = evidenceLinks
         .split("\n")
         .map((l) => l.trim())
@@ -52,17 +51,14 @@ export default function ClaimScreen() {
         contact: contact.trim(),
         proof_method: proofMethod,
         evidence_links: links.length > 0 ? links : undefined,
-        device_id: deviceId,
+        device_id: h["X-Device-Id"],
       };
 
       console.log("[Claim] Submitting:", body);
 
       const resp = await fetch(`${BASE_URL}/claim`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Device-Id": deviceId,
-        },
+        headers: h,
         body: JSON.stringify(body),
       });
 

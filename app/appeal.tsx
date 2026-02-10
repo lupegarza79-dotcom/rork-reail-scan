@@ -13,8 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { ArrowLeft, AlertTriangle, Check, Send, Info } from "lucide-react-native";
 import Colors from "@/constants/colors";
-import { BASE_URL } from "@/utils/api";
-import { getDeviceId } from "@/utils/deviceId";
+import { BASE_URL, headers as apiHeaders } from "@/utils/api";
 
 export default function AppealScreen() {
   const router = useRouter();
@@ -35,7 +34,7 @@ export default function AppealScreen() {
     setSubmitting(true);
 
     try {
-      const deviceId = await getDeviceId();
+      const h = await apiHeaders();
       const links = evidenceLinks
         .split("\n")
         .map((l) => l.trim())
@@ -47,17 +46,14 @@ export default function AppealScreen() {
         message: message.trim(),
         contact: contact.trim() || undefined,
         evidence_links: links.length > 0 ? links : undefined,
-        device_id: deviceId,
+        device_id: h["X-Device-Id"],
       };
 
       console.log("[Appeal] Submitting:", body);
 
       const resp = await fetch(`${BASE_URL}/appeal`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Device-Id": deviceId,
-        },
+        headers: h,
         body: JSON.stringify(body),
       });
 
