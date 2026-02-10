@@ -35,12 +35,7 @@ function RootLayoutNav() {
           animation: 'slide_from_bottom',
         }} 
       />
-      <Stack.Screen 
-        name="settings" 
-        options={{ 
-          animation: 'slide_from_right',
-        }} 
-      />
+
       <Stack.Screen 
         name="share-tutorial" 
         options={{ 

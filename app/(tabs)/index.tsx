@@ -24,7 +24,6 @@ import {
   ChevronDown,
   ChevronUp,
   Upload,
-  Settings,
   Link2,
   FileText,
   Camera,
@@ -144,22 +143,11 @@ export default function ScanHomeScreen() {
       <View style={styles.topBar}>
         <View style={styles.logoContainer}>
           <Shield size={20} color={Colors.primary} strokeWidth={2.5} />
-          <Text style={styles.logo}>REAiL</Text>
+          <Text style={styles.logo}>REAiL Scan</Text>
         </View>
-        <View style={styles.topBarRight}>
-          <View style={styles.privateBadge}>
-            <Lock size={12} color={Colors.textSecondary} strokeWidth={2.5} />
-            <Text style={styles.privateText}>Private</Text>
-          </View>
-          <Pressable
-            onPress={() => router.push("/settings")}
-            style={({ pressed }) => [
-              styles.settingsBtn,
-              pressed && styles.settingsBtnPressed,
-            ]}
-          >
-            <Settings size={18} color={Colors.textSecondary} strokeWidth={2} />
-          </Pressable>
+        <View style={styles.privateBadge}>
+          <Lock size={12} color={Colors.textSecondary} strokeWidth={2.5} />
+          <Text style={styles.privateText}>Private</Text>
         </View>
       </View>
 
@@ -652,11 +640,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     letterSpacing: 0.5,
   },
-  topBarRight: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    gap: 8,
-  },
   privateBadge: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -670,17 +653,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 12,
     fontWeight: "600" as const,
-  },
-  settingsBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundSecondary,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-  },
-  settingsBtnPressed: {
-    backgroundColor: Colors.backgroundTertiary,
   },
   content: {
     paddingHorizontal: 20,

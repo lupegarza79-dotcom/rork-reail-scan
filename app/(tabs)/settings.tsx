@@ -9,11 +9,8 @@ import {
   StyleSheet,
   Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, Stack } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  ArrowLeft,
   Globe,
   Lock,
   Trash2,
@@ -60,8 +57,7 @@ async function saveSettings(s: ReailSettings) {
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
-export default function SettingsScreen() {
-  const router = useRouter();
+export default function SettingsTabScreen() {
   const [settings, setSettings] = useState<ReailSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [deviceId, setDeviceId] = useState<string>("");
@@ -141,7 +137,6 @@ export default function SettingsScreen() {
   if (!loaded) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
         <Text style={styles.loadingText}>Loading…</Text>
       </View>
     );
@@ -149,25 +144,12 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safeArea} edges={["top"]}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.headerBtn,
-              pressed && styles.headerBtnPressed,
-            ]}
-          >
-            <ArrowLeft size={22} color="white" strokeWidth={2} />
-          </Pressable>
-          <View style={styles.headerTitleRow}>
-            <Settings size={18} color={Colors.primary} strokeWidth={2} />
-            <Text style={styles.headerTitle}>Settings</Text>
-          </View>
-          <View style={{ width: 44 }} />
+      <View style={styles.topBar}>
+        <View style={styles.titleRow}>
+          <Settings size={20} color={Colors.primary} strokeWidth={2} />
+          <Text style={styles.title}>Settings</Text>
         </View>
-      </SafeAreaView>
+      </View>
 
       <ScrollView
         style={styles.scrollView}
@@ -363,16 +345,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  safeArea: {
-    backgroundColor: Colors.background,
-  },
-  loadingText: {
-    color: "white",
-    textAlign: "center" as const,
-    marginTop: 100,
-    opacity: 0.6,
-  },
-  header: {
+  topBar: {
     height: 56,
     paddingHorizontal: 16,
     flexDirection: "row",
@@ -381,26 +354,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  headerBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: Colors.backgroundSecondary,
-  },
-  headerBtnPressed: {
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  headerTitleRow: {
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  headerTitle: {
+  title: {
     color: Colors.text,
     fontWeight: "800" as const,
     fontSize: 18,
+  },
+  loadingText: {
+    color: "white",
+    textAlign: "center" as const,
+    marginTop: 100,
+    opacity: 0.6,
   },
   scrollView: {
     flex: 1,
