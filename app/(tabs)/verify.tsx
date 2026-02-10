@@ -26,7 +26,11 @@ import {
   FileCheck,
   Lock,
   Zap,
+  AlertTriangle,
+  Flag,
+  UserCheck,
 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { useApp } from '@/contexts/AppContext';
 import Logo from '@/components/Logo';
@@ -34,6 +38,7 @@ import Logo from '@/components/Logo';
 const WAITLIST_KEY = 'reail_waitlist_emails';
 
 export default function VerifyScreen() {
+  const router = useRouter();
   const { t } = useApp();
   const [businessModalOpen, setBusinessModalOpen] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
@@ -189,6 +194,55 @@ export default function VerifyScreen() {
                   </Text>
                 </View>
               </View>
+            </View>
+
+            <View style={styles.fairnessSection}>
+              <Text style={styles.fairnessTitle}>Fairness & Accuracy</Text>
+              <Text style={styles.fairnessSubtitle}>
+                We believe in accountability. If something is wrong, tell us.
+              </Text>
+
+              <Pressable
+                onPress={() => router.push('/claim')}
+                style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+              >
+                <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.verified}15` }]}>
+                  <UserCheck size={18} color={Colors.verified} strokeWidth={2} />
+                </View>
+                <View style={styles.fairnessContent}>
+                  <Text style={styles.fairnessLabel}>Claim Profile</Text>
+                  <Text style={styles.fairnessDesc}>Prove you own this domain or brand</Text>
+                </View>
+                <ArrowRight size={16} color={Colors.textTertiary} />
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push('/appeal')}
+                style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+              >
+                <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.unverified}15` }]}>
+                  <AlertTriangle size={18} color={Colors.unverified} strokeWidth={2} />
+                </View>
+                <View style={styles.fairnessContent}>
+                  <Text style={styles.fairnessLabel}>Submit Appeal</Text>
+                  <Text style={styles.fairnessDesc}>Challenge a scan result with evidence</Text>
+                </View>
+                <ArrowRight size={16} color={Colors.textTertiary} />
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push('/appeal')}
+                style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+              >
+                <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.highRisk}15` }]}>
+                  <Flag size={18} color={Colors.highRisk} strokeWidth={2} />
+                </View>
+                <View style={styles.fairnessContent}>
+                  <Text style={styles.fairnessLabel}>Report Mistake</Text>
+                  <Text style={styles.fairnessDesc}>Flag an incorrect or unfair result</Text>
+                </View>
+                <ArrowRight size={16} color={Colors.textTertiary} />
+              </Pressable>
             </View>
 
             <Text style={styles.footerText}>
@@ -573,6 +627,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     lineHeight: 18,
+  },
+  fairnessSection: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  fairnessTitle: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginBottom: 4,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  fairnessSubtitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 14,
+  },
+  fairnessCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    marginBottom: 10,
+  },
+  fairnessCardPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  fairnessIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  fairnessContent: {
+    flex: 1,
+  },
+  fairnessLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  fairnessDesc: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   footerText: {
     fontSize: 13,

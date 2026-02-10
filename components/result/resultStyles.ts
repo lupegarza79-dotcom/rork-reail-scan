@@ -1126,4 +1126,30 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500" as const,
   },
+  borderlineCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+    backgroundColor: `${Colors.unverified}12`,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: `${Colors.unverified}30`,
+    marginBottom: 12,
+  },
+  borderlineTextWrap: {
+    flex: 1,
+  },
+  borderlineTitle: {
+    color: Colors.unverified,
+    fontSize: 13,
+    fontWeight: "700" as const,
+    marginBottom: 4,
+  },
+  borderlineDesc: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
 });

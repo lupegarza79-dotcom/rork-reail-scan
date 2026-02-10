@@ -709,6 +709,16 @@ export default function ResultScreen() {
             </View>
           )}
 
+          {badge === 'HIGH_RISK' && score >= 35 && score <= 50 && (
+            <View style={styles.borderlineCard}>
+              <AlertTriangle size={14} color={Colors.unverified} strokeWidth={2} />
+              <View style={styles.borderlineTextWrap}>
+                <Text style={styles.borderlineTitle}>Borderline: additional review queued</Text>
+                <Text style={styles.borderlineDesc}>This is not a final accusation—signals require verification.</Text>
+              </View>
+            </View>
+          )}
+
           {loadingRemote && (
             <Text style={styles.loadingText}>Loading shared result…</Text>
           )}

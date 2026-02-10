@@ -28,6 +28,10 @@ import {
   Link2,
   FileText,
   Camera,
+  Zap,
+  Search,
+  FileCheck,
+  Share2,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import Colors from "@/constants/colors";
@@ -57,6 +61,7 @@ export default function ScanHomeScreen() {
   const [isFocused, setIsFocused] = useState(false);
   const [showFirstScanTip, setShowFirstScanTip] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [advSaveHistory, setAdvSaveHistory] = useState(true);
   const [advCreateAlert, setAdvCreateAlert] = useState(true);
   const [advGenerateCase, setAdvGenerateCase] = useState(false);
@@ -482,6 +487,62 @@ export default function ScanHomeScreen() {
             ))}
           </View>
         </View>
+
+        <Pressable
+          onPress={() => setShowHowItWorks(!showHowItWorks)}
+          style={({ pressed }) => [
+            styles.advancedToggle,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={styles.advancedToggleText}>How it works</Text>
+          {showHowItWorks ? (
+            <ChevronUp size={14} color={Colors.textTertiary} strokeWidth={2} />
+          ) : (
+            <ChevronDown size={14} color={Colors.textTertiary} strokeWidth={2} />
+          )}
+        </Pressable>
+
+        {showHowItWorks && (
+          <View style={styles.howItWorksContent}>
+            <View style={styles.howItWorksStep}>
+              <View style={[styles.howItWorksIcon, { backgroundColor: `${Colors.primary}15` }]}>
+                <Search size={16} color={Colors.primary} strokeWidth={2} />
+              </View>
+              <View style={styles.howItWorksTextWrap}>
+                <Text style={styles.howItWorksTitle}>1. Paste & Scan</Text>
+                <Text style={styles.howItWorksDesc}>Paste a link, text, or upload a screenshot</Text>
+              </View>
+            </View>
+            <View style={styles.howItWorksStep}>
+              <View style={[styles.howItWorksIcon, { backgroundColor: `${Colors.accent}15` }]}>
+                <Zap size={16} color={Colors.accent} strokeWidth={2} />
+              </View>
+              <View style={styles.howItWorksTextWrap}>
+                <Text style={styles.howItWorksTitle}>2. AI Analysis</Text>
+                <Text style={styles.howItWorksDesc}>Public signals checked against scam patterns in seconds</Text>
+              </View>
+            </View>
+            <View style={styles.howItWorksStep}>
+              <View style={[styles.howItWorksIcon, { backgroundColor: `${Colors.verified}15` }]}>
+                <FileCheck size={16} color={Colors.verified} strokeWidth={2} />
+              </View>
+              <View style={styles.howItWorksTextWrap}>
+                <Text style={styles.howItWorksTitle}>3. Verdict + Reasons</Text>
+                <Text style={styles.howItWorksDesc}>Get a clear risk score with explainable reason codes (A–F)</Text>
+              </View>
+            </View>
+            <View style={styles.howItWorksStep}>
+              <View style={[styles.howItWorksIcon, { backgroundColor: `${Colors.highRisk}15` }]}>
+                <Share2 size={16} color={Colors.highRisk} strokeWidth={2} />
+              </View>
+              <View style={styles.howItWorksTextWrap}>
+                <Text style={styles.howItWorksTitle}>4. Share & Protect</Text>
+                <Text style={styles.howItWorksDesc}>Share the report to warn others via WhatsApp, SMS, or link</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         <Pressable
           onPress={() => router.push("/tools")}
@@ -963,6 +1024,41 @@ const styles = StyleSheet.create({
   moreLinkArrow: {
     color: Colors.primary,
     fontSize: 16,
+  },
+  howItWorksContent: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    gap: 14,
+    marginBottom: 8,
+  },
+  howItWorksStep: {
+    flexDirection: "row" as const,
+    alignItems: "flex-start" as const,
+    gap: 12,
+  },
+  howItWorksIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  howItWorksTextWrap: {
+    flex: 1,
+  },
+  howItWorksTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "600" as const,
+    marginBottom: 2,
+  },
+  howItWorksDesc: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
   },
   disclaimerRow: {
     flexDirection: "row",

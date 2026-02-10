@@ -192,15 +192,6 @@ export default function ShareLinkScreen() {
     }
   }, [token, data, isEs]);
 
-  const handleFullScan = useCallback(() => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-    if (data?.original_url) {
-      router.push({ pathname: '/scanning', params: { url: data.original_url } });
-    }
-  }, [data?.original_url, router]);
-
   const handleOpenLink = useCallback(() => {
     if (data?.original_url) {
       Linking.openURL(data.original_url);
@@ -629,20 +620,18 @@ export default function ShareLinkScreen() {
                 </Text>
               </TouchableOpacity>
 
-              {!data.badge && (
-                <TouchableOpacity 
-                  style={styles.secondaryButton} 
-                  onPress={handleFullScan}
-                  activeOpacity={0.85}
-                  testID="full-scan-btn"
-                >
-                  <Shield size={18} color={Colors.primary} />
-                  <Text style={styles.secondaryButtonText}>
-                    {isEs ? 'Escaneo completo' : 'Run Full Scan'}
-                  </Text>
-                  <ArrowRight size={16} color={Colors.primary} />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity 
+                style={styles.secondaryButton} 
+                onPress={() => router.push('/')}
+                activeOpacity={0.85}
+                testID="scan-own-btn"
+              >
+                <Shield size={18} color={Colors.primary} />
+                <Text style={styles.secondaryButtonText}>
+                  {isEs ? 'Escanea tu propio enlace' : 'Scan Your Own Link'}
+                </Text>
+                <ArrowRight size={16} color={Colors.primary} />
+              </TouchableOpacity>
 
               {data.badge === 'VERIFIED' && (
                 <TouchableOpacity 
@@ -665,6 +654,18 @@ export default function ShareLinkScreen() {
                   : 'Risk-based verification using public signals + automated analysis. Not absolute truth. REAiL does not guarantee specific outcomes.'}
               </Text>
             </View>
+
+            <TouchableOpacity
+              style={styles.appealLink}
+              onPress={() => router.push(`/appeal?token=${encodeURIComponent(token || '')}`)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.appealLinkText}>
+                {isEs
+                  ? '¿Eres el negocio/creador? Envía evidencia para corregir este resultado.'
+                  : 'Are you the business/creator? Submit evidence to correct this result.'}
+              </Text>
+            </TouchableOpacity>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>
@@ -1104,6 +1105,21 @@ const styles = StyleSheet.create({
   footerPowered: {
     fontSize: 12,
     color: Colors.textTertiary,
+  },
+  appealLink: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: Colors.backgroundTertiary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  appealLinkText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   modalContainer: {
     flex: 1,
