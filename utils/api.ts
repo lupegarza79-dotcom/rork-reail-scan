@@ -426,6 +426,45 @@ export async function createMoneyCase(input: MoneyCaseInput): Promise<MoneyCaseR
   }
 }
 
+export async function contentScanText(text: string): Promise<ContentScanResult | null> {
+  console.log("[API] contentScanText called");
+  try {
+    const resp = await fetch(`${BASE_URL}/content-scan`, {
+      method: "POST",
+      headers: await headers(),
+      body: JSON.stringify({ content_text: text }),
+    });
+    if (!resp.ok) {
+      console.log("[API] contentScanText failed:", resp.status);
+      return null;
+    }
+    const data = await resp.json() as ContentScanResponse;
+    console.log("[API] contentScanText response:", data);
+    const evidence: EvidenceCard[] = (data.evidence || []).map((e, idx) => ({
+      id: `${e.provider}-${idx}`,
+      provider: e.provider,
+      providerLabel: getProviderLabel(e.provider),
+      status: e.status,
+      summary: e.summary,
+      weight: e.weight || 25,
+      scoreImpact: 0,
+      payload: e.payload,
+      timestamp: Date.now(),
+    }));
+    return {
+      scanId: data.scan_id,
+      badge: data.badge,
+      score: data.score,
+      summary: data.summary,
+      evidence,
+      scoreBreakdown: data.score_breakdown,
+    };
+  } catch (err) {
+    console.log("[API] contentScanText error:", err);
+    return null;
+  }
+}
+
 export async function fetchMoneyCase(caseId: string): Promise<MoneyCaseFullResponse | null> {
   try {
     console.log("[API] fetchMoneyCase:", caseId);
