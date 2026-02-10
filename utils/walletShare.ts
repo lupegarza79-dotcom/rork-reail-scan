@@ -1,30 +1,5 @@
-import Constants from "expo-constants";
-import { getDeviceId } from "./deviceId";
+import { BASE_URL, headers } from "./api";
 import type { BadgeType } from "@/types/scan";
-
-export const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ??
-  (Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL as string) ??
-  "https://api.reail.app";
-
-const ANON_KEY =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
-  (Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_ANON_KEY as string) ??
-  "";
-
-async function headers(): Promise<Record<string, string>> {
-  const deviceId = await getDeviceId();
-  const h: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-Device-Id": deviceId,
-  };
-  if (ANON_KEY) {
-    h["Authorization"] = `Bearer ${ANON_KEY}`;
-    h["apikey"] = ANON_KEY;
-  }
-  return h;
-}
 
 export interface WalletShareData {
   token: string;

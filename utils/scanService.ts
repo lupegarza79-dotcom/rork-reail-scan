@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { aiScanEngine } from "./aiScanEngine";
 import { generateMockScan, detectPlatform } from "./mockScan";
 import { saveToHistory } from "./historyStore";
+import { trackEvent } from "./analytics";
 import { cacheScanResult } from "./scanCache";
 import { postScanUrl, contentScan, quickScan as quickScanApi } from "./api";
 import { calculateScoreFromEvidence, PLACEHOLDER_EVIDENCE } from "./evidenceEngine";
@@ -172,6 +173,7 @@ class ScanService {
 
       if (qr && qr.scan_id && qr.badge) {
         console.log("[ScanService] quick-scan ok:", qr.badge, qr.score);
+        trackEvent('quick_scan_success', { badge: qr.badge, score: qr.score ?? 0 });
 
         const reasons = this.buildReasonsFromRedFlags(qr.top_red_flags || []);
         const result: ScanResult = {
@@ -281,6 +283,9 @@ class ScanService {
       }
     }
 
+    console.log('[ScanService] All providers failed, using mock fallback');
+    trackEvent('fallback_used', { input: url.substring(0, 60) });
+
     const mock = generateMockScan(url);
     const result: ScanResult = {
       ...mock,
@@ -289,6 +294,7 @@ class ScanService {
       platform: mock.platform || detectPlatform(url),
       timestamp: mock.timestamp || Date.now(),
       evidence: PLACEHOLDER_EVIDENCE,
+      isMock: true,
     };
 
     await this.recordLocalStorage(result);
@@ -432,6 +438,9 @@ class ScanService {
       }
     }
 
+    console.log('[ScanService] Media scan: all providers failed, using mock fallback');
+    trackEvent('fallback_used', { input: 'screenshot' });
+
     const mock = generateMockScan("screenshot://uploaded");
     const result: ScanResult = {
       ...mock,
@@ -440,6 +449,7 @@ class ScanService {
       platform: "other",
       title: "Uploaded screenshot",
       timestamp: mock.timestamp || Date.now(),
+      isMock: true,
     };
 
     await this.recordLocalStorage(result);

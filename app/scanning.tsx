@@ -8,6 +8,7 @@ import { scanService } from "../utils/scanService";
 import { contentScanText } from "../utils/api";
 import { useNetwork } from "../hooks/useNetwork";
 import Colors from "@/constants/colors";
+import { trackEvent } from "@/utils/analytics";
 
 type Params = {
   url?: string;
@@ -97,8 +98,11 @@ export default function ScanningScreen() {
     const run = async () => {
       try {
         setError(null);
+        trackEvent('scan_started', {
+          type: scanInput.url ? 'url' : scanInput.contentText ? 'text' : 'media',
+          online: isOnline,
+        });
 
-        // show online/offline as UI only (not "AI connected")
         if (!isOnline) {
           setStatusText("Offline mode (fallback)");
         }

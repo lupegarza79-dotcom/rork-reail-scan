@@ -1,6 +1,7 @@
 -- Migration: Trust Graph schema
+-- Moved from 20240206 to 20240212 to resolve ordering conflict with remote DB
 -- Tracks domain behavior over time for deterministic reputation scoring
--- Does NOT break existing tables or scoring determinism
+-- IDEMPOTENT: safe to re-run on any environment
 
 -- 1) Add content_intel provider
 DO $$ BEGIN
@@ -98,7 +99,6 @@ BEGIN
     max_score = GREATEST(domain_trust_profiles.max_score, p_score),
     updated_at = NOW();
 
-  -- Recompute tier deterministically (skip if locked by admin)
   SELECT verified_count, unverified_count, high_risk_count, total_scans, avg_score
     INTO v_verified, v_unverified, v_high_risk, v_total, v_avg
     FROM domain_trust_profiles WHERE domain = p_domain;
@@ -121,18 +121,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 6) RLS
+-- 6) RLS (idempotent: DROP IF EXISTS before CREATE)
 ALTER TABLE domain_trust_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE domain_scan_edges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE domain_relationships ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role manages trust profiles" ON domain_trust_profiles;
 CREATE POLICY "Service role manages trust profiles"
   ON domain_trust_profiles FOR ALL USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Service role manages scan edges" ON domain_scan_edges;
 CREATE POLICY "Service role manages scan edges"
   ON domain_scan_edges FOR ALL USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Service role manages domain relationships" ON domain_relationships;
 CREATE POLICY "Service role manages domain relationships"
   ON domain_relationships FOR ALL USING (auth.role() = 'service_role');
 
--- Public read for trust profiles (so the app can show trust tier)
+DROP POLICY IF EXISTS "Anyone can read trust profiles" ON domain_trust_profiles;
 CREATE POLICY "Anyone can read trust profiles"
   ON domain_trust_profiles FOR SELECT USING (true);

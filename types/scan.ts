@@ -128,6 +128,7 @@ export interface ScanResult {
   evidence?: EvidenceCard[];
   summary?: string;
   scoreBreakdown?: ScoreBreakdown;
+  isMock?: boolean;
 }
 
 export interface ScoreBreakdown {

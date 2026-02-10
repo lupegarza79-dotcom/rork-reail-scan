@@ -11,6 +11,8 @@ import type {
   MoneyCaseInput,
   MoneyCaseResponse,
   MoneyCaseFullResponse,
+  DomainTrustProfile,
+  TrustTier,
 } from "@/types/scan";
 import { getProviderLabel } from "./evidenceEngine";
 
@@ -462,6 +464,53 @@ export async function contentScanText(text: string): Promise<ContentScanResult |
     };
   } catch (err) {
     console.log("[API] contentScanText error:", err);
+    return null;
+  }
+}
+
+export async function fetchDomainTrustProfile(domain: string): Promise<DomainTrustProfile | null> {
+  if (!domain || domain === 'unknown' || domain === 'Text Analysis') return null;
+
+  try {
+    console.log('[API] fetchDomainTrustProfile:', domain);
+    const restUrl = BASE_URL.replace('/functions/v1', '/rest/v1');
+    const resp = await fetch(
+      `${restUrl}/domain_trust_profiles?domain=eq.${encodeURIComponent(domain)}&select=*`,
+      {
+        method: 'GET',
+        headers: await headers(),
+      },
+    );
+
+    if (!resp.ok) {
+      console.log('[API] fetchDomainTrustProfile failed:', resp.status);
+      return null;
+    }
+
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    const row = data[0];
+    console.log('[API] fetchDomainTrustProfile ok:', row.trust_tier, row.total_scans);
+    return {
+      domain: row.domain,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+      totalScans: row.total_scans,
+      verifiedCount: row.verified_count,
+      unverifiedCount: row.unverified_count,
+      highRiskCount: row.high_risk_count,
+      avgScore: Number(row.avg_score),
+      minScore: row.min_score,
+      maxScore: row.max_score,
+      totalReports: row.total_reports,
+      scamReports: row.scam_reports,
+      safeReports: row.safe_reports,
+      trustTier: row.trust_tier as TrustTier,
+      tierLocked: row.tier_locked,
+    };
+  } catch (err) {
+    console.log('[API] fetchDomainTrustProfile error:', err);
     return null;
   }
 }

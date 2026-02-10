@@ -15,57 +15,49 @@ import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { captureRef } from "react-native-view-shot";
 import * as WebBrowser from "expo-web-browser";
-import { 
-  ArrowLeft, 
-  Share2, 
-  ChevronDown, 
-  ChevronRight,
+import {
+  ArrowLeft,
+  Share2,
   Shield,
-  ShieldCheck,
-  ShieldAlert,
-  ShieldX,
-  Info,
-  Image as ImageIcon,
-  Bot,
-  User,
-  AlertTriangle,
-  FileCheck,
-  FileX,
-  FileClock,
-  FileQuestion,
-  HelpCircle,
   Eye,
   Plus,
   Compass,
-  Copy,
-  Video,
-  RefreshCw,
+  Image as ImageIcon,
   MessageSquare,
-  UserCheck,
-  LinkIcon,
-  Zap,
-  DollarSign,
   Mail,
+  DollarSign,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
-import { fetchScanWithEvidence, reportScan } from "../utils/api";
+import { fetchScanWithEvidence, reportScan, fetchDomainTrustProfile } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
+import { trackEvent } from "../utils/analytics";
 
 import BadgePill, { getBadgeColor, getBadgeBg, getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
-import { 
-  PLACEHOLDER_EVIDENCE, 
-  getProviderLabel, 
-  getEvidenceScoreImpact, 
-  formatScoreImpact,
-  getStatusColor,
-  getStatusLabel,
-  buildEvidenceDetails,
+import {
+  PLACEHOLDER_EVIDENCE,
+  getProviderLabel,
+  getEvidenceScoreImpact,
   calculateScoreFromEvidence,
 } from "@/utils/evidenceEngine";
-import type { EvidenceCard as EvidenceCardType, EvidenceStatus as EvidenceStatusType, ScoreAdjustment, ReportType } from "@/types/scan";
+import type {
+  EvidenceCard as EvidenceCardType,
+  ScoreAdjustment,
+  ReportType,
+  DomainTrustProfile,
+  BadgeType,
+} from "@/types/scan";
 import { styles } from "@/components/result/resultStyles";
 import { DisclaimerModal, ScoreTooltipModal, SafeViewModal, ReportModal } from "@/components/result/ResultModals";
+
+import DecisionCard from "@/components/result/DecisionCard";
+import EvidenceSection from "@/components/result/EvidenceSection";
+import AnalysisDetails from "@/components/result/AnalysisDetails";
+import TrustGraphCard from "@/components/result/TrustGraphCard";
+import MockBanner from "@/components/result/MockBanner";
+import ResultSkeleton from "@/components/result/ResultSkeleton";
 
 type ReasonKey = "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -76,18 +68,6 @@ type Reason = {
   whatWouldVerify?: string[];
 };
 
-type ContentMetrics = {
-  aiProbability?: number;
-  humanProbability?: number;
-  authenticityScore?: number;
-  manipulationRisk?: number;
-  scamIndicators?: number;
-  confidenceLevel?: 'high' | 'medium' | 'low';
-};
-
-type EvidenceStatus = EvidenceStatusType;
-type EvidenceCard = EvidenceCardType;
-
 type ScanResult = {
   scanId?: string;
   badge?: "VERIFIED" | "UNVERIFIED" | "HIGH_RISK";
@@ -97,7 +77,14 @@ type ScanResult = {
   url?: string;
   thumbnailUrl?: string;
   reasons?: Partial<Record<ReasonKey, Reason>>;
-  metrics?: ContentMetrics;
+  metrics?: {
+    aiProbability?: number;
+    humanProbability?: number;
+    authenticityScore?: number;
+    manipulationRisk?: number;
+    scamIndicators?: number;
+    confidenceLevel?: "high" | "medium" | "low";
+  };
   scanVersion?: string;
   shareCard?: {
     headline?: string;
@@ -106,28 +93,20 @@ type ScanResult = {
     domain?: string;
     timestamp?: string;
   };
-  evidence?: EvidenceCard[];
+  evidence?: EvidenceCardType[];
   summary?: string;
   scoreBreakdown?: {
     baseScore: number;
     adjustments: ScoreAdjustment[];
     finalScore: number;
-    badge: string;
+    badge: BadgeType;
   };
+  isMock?: boolean;
 };
 
 type Params = {
   scanId?: string;
   payload?: string;
-};
-
-const REASON_ICONS: Record<ReasonKey, React.ComponentType<{ size: number; color: string; strokeWidth: number }>> = {
-  A: Video,
-  B: Copy,
-  C: MessageSquare,
-  D: UserCheck,
-  E: LinkIcon,
-  F: Zap,
 };
 
 function safeJsonParse<T>(value: string | undefined): T | null {
@@ -137,13 +116,6 @@ function safeJsonParse<T>(value: string | undefined): T | null {
   } catch {
     return null;
   }
-}
-
-function BadgeIcon({ badge, size = 24 }: { badge?: ScanResult["badge"]; size?: number }) {
-  const color = getBadgeColor(badge ?? "UNVERIFIED");
-  if (badge === "VERIFIED") return <ShieldCheck size={size} color={color} strokeWidth={2} />;
-  if (badge === "UNVERIFIED") return <ShieldAlert size={size} color={color} strokeWidth={2} />;
-  return <ShieldX size={size} color={color} strokeWidth={2} />;
 }
 
 function clampScore(n: unknown) {
@@ -163,30 +135,13 @@ function defaultReasons(): Record<ReasonKey, Reason> {
   };
 }
 
-function getConfidenceColor(level: string | undefined): string {
-  if (level === 'high') return Colors.verified;
-  if (level === 'medium') return Colors.unverified;
-  return Colors.textTertiary;
-}
-
-function getConfidenceLabel(level: string | undefined): string {
-  if (level === 'high') return 'HIGH';
-  if (level === 'medium') return 'MED';
-  return 'LOW';
-}
-
 export default function ResultScreen() {
   const router = useRouter();
   const { scanId, payload } = useLocalSearchParams<Params>();
 
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const [safeViewOpen, setSafeViewOpen] = useState(false);
-  const [whyScoreOpen, setWhyScoreOpen] = useState(false);
   const [scoreTooltipOpen, setScoreTooltipOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Record<ReasonKey, boolean>>({
-    A: false, B: false, C: false, D: false, E: false, F: false,
-  });
-  const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({});
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportType, setReportType] = useState<ReportType>("scam");
   const [reportDescription, setReportDescription] = useState("");
@@ -195,11 +150,15 @@ export default function ResultScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
-
   const shareCardRef = useRef<View>(null);
+
   const [cached, setCached] = useState<ScanResult | null>(null);
   const [loadingRemote, setLoadingRemote] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
+
+  const [trustProfile, setTrustProfile] = useState<DomainTrustProfile | null>(null);
+  const [trustLoading, setTrustLoading] = useState(false);
+
   const scanIdStr = scanId ? String(scanId) : "";
 
   const parsedPayload = useMemo(() => {
@@ -209,39 +168,23 @@ export default function ResultScreen() {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }),
     ]).start();
   }, [fadeAnim, scaleAnim]);
 
   useEffect(() => {
     let active = true;
-
     (async () => {
       if (scanIdStr && !parsedPayload) {
         const found = await getCachedScanResult(scanIdStr);
         if (!active) return;
-
-        if (found) {
-          setCached(found);
-          return;
-        }
+        if (found) { setCached(found); return; }
 
         setLoadingRemote(true);
         setRemoteError(null);
-
         const remote = await fetchScanWithEvidence(scanIdStr);
         if (!active) return;
-
         setLoadingRemote(false);
 
         if (!remote) {
@@ -261,12 +204,10 @@ export default function ResultScreen() {
           summary: remote.summary,
           scoreBreakdown: remote.scoreBreakdown,
         };
-
         setCached(normalized);
         await cacheScanResult(remote.id, normalized);
       }
     })();
-
     return () => { active = false; };
   }, [scanIdStr, parsedPayload]);
 
@@ -283,11 +224,29 @@ export default function ResultScreen() {
     };
   }, [parsedPayload, cached, scanIdStr]);
 
-  const badge = result.badge ?? "UNVERIFIED";
+  const badge = (result.badge ?? "UNVERIFIED") as BadgeType;
   const score = clampScore(result.score ?? 0);
   const domain = result.domain ?? (result.url ? (() => {
-    try { return new URL(result.url).hostname; } catch { return "unknown"; }
+    try { return new URL(result.url!).hostname; } catch { return "unknown"; }
   })() : "unknown");
+
+  useEffect(() => {
+    if (domain && domain !== 'unknown' && domain !== 'reail.app') {
+      setTrustLoading(true);
+      fetchDomainTrustProfile(domain)
+        .then((profile) => {
+          setTrustProfile(profile);
+          if (profile) {
+            trackEvent('trust_graph_viewed', { domain, tier: profile.trustTier });
+          }
+        })
+        .finally(() => setTrustLoading(false));
+    }
+  }, [domain]);
+
+  useEffect(() => {
+    trackEvent('scan_result_viewed', { badge, score, domain });
+  }, [badge, score, domain]);
 
   const reasonsMerged: Record<ReasonKey, Reason> = useMemo(() => {
     const base = defaultReasons();
@@ -305,10 +264,10 @@ export default function ResultScreen() {
   const sortedReasonKeys = useMemo(() => {
     const keys: ReasonKey[] = ["A", "B", "C", "D", "E", "F"];
     return keys.sort((a, b) => {
-      const aHasDetails = (reasonsMerged[a]?.details?.length ?? 0) > 0;
-      const bHasDetails = (reasonsMerged[b]?.details?.length ?? 0) > 0;
-      if (aHasDetails && !bHasDetails) return -1;
-      if (!aHasDetails && bHasDetails) return 1;
+      const aHas = (reasonsMerged[a]?.details?.length ?? 0) > 0;
+      const bHas = (reasonsMerged[b]?.details?.length ?? 0) > 0;
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
       return 0;
     });
   }, [reasonsMerged]);
@@ -320,14 +279,12 @@ export default function ResultScreen() {
       .map(k => ({ key: k, ...reasonsMerged[k] }));
   }, [reasonsMerged, sortedReasonKeys]);
 
-  const evidenceCards: EvidenceCard[] = result.evidence?.length ? result.evidence : PLACEHOLDER_EVIDENCE;
+  const evidenceCards: EvidenceCardType[] = result.evidence?.length ? result.evidence : PLACEHOLDER_EVIDENCE;
   const hasRealEvidence = !!result.evidence?.length;
 
   const scoreBreakdown = useMemo(() => {
     if (result.scoreBreakdown) return result.scoreBreakdown;
-    if (hasRealEvidence && result.evidence) {
-      return calculateScoreFromEvidence(result.evidence);
-    }
+    if (hasRealEvidence && result.evidence) return calculateScoreFromEvidence(result.evidence);
     return null;
   }, [result.scoreBreakdown, result.evidence, hasRealEvidence]);
 
@@ -344,10 +301,9 @@ export default function ResultScreen() {
       .sort((a, b) => a.impact - b.impact);
   }, [hasRealEvidence, evidenceCards]);
 
-  const shareCardFooter = "Risk-based verification • Not absolute truth";
-
   const badgeColor = getBadgeColor(badge);
   const badgeBg = getBadgeBg(badge);
+  const shareCardFooter = "Risk-based verification • Not absolute truth";
 
   const nbaContent = useMemo(() => {
     if (badge === "VERIFIED") {
@@ -377,38 +333,35 @@ export default function ResultScreen() {
     };
   }, [badge]);
 
+  const getShareMsg = () => {
+    const sid = result?.scanId || (result as Record<string, unknown>)?.id;
+    const link = sid ? buildWebResultUrl(sid as string) : '';
+    return { link, msg: `REAiL: ${getBadgeLabel(badge)} • ${score}/100 — ${domain}\n${link}` };
+  };
+
   const onShareText = async () => {
     const lines: string[] = [];
     lines.push("REAiL Scan Result");
     lines.push(`${getBadgeLabel(badge)} • Risk Score: ${score}/100`);
     lines.push(`Domain: ${domain}`);
     const scanIdToShare = result?.scanId || (result as Record<string, unknown>)?.id;
-    if (scanIdToShare) {
-      lines.push(`Report: ${buildWebResultUrl(scanIdToShare as string)}`);
-    }
+    if (scanIdToShare) lines.push(`Report: ${buildWebResultUrl(scanIdToShare as string)}`);
     lines.push("");
     lines.push("Top Signals:");
-    topReasons.forEach((r) => {
-      lines.push(`• ${r.title}: ${r.summary}`);
-    });
+    topReasons.forEach((r) => { lines.push(`• ${r.title}: ${r.summary}`); });
     lines.push("");
     lines.push(shareCardFooter);
 
     const message = lines.join("\n");
-    
     try {
       await Share.share({ message });
+      trackEvent('share_created', { method: 'text' });
     } catch {
       try {
         await Clipboard.setStringAsync(message);
-        if (Platform.OS === "web") {
-          alert("Report copied to clipboard!");
-        } else {
-          Alert.alert("Copied", "Report copied to clipboard.");
-        }
-      } catch {
-        console.log("[Share] Failed to copy");
-      }
+        if (Platform.OS === "web") alert("Report copied to clipboard!");
+        else Alert.alert("Copied", "Report copied to clipboard.");
+      } catch { console.log("[Share] Failed to copy"); }
     }
   };
 
@@ -419,66 +372,39 @@ export default function ResultScreen() {
       const shareMsg = scanIdToShare
         ? `${shareCardFooter}\n${buildWebResultUrl(scanIdToShare as string)}`
         : shareCardFooter;
-      
       try {
-        await Share.share(
-          Platform.OS === "ios"
-            ? { url: uri }
-            : { message: shareMsg, url: uri }
-        );
-      } catch {
-        await onShareText();
-      }
-    } catch {
-      await onShareText();
-    }
+        await Share.share(Platform.OS === "ios" ? { url: uri } : { message: shareMsg, url: uri });
+        trackEvent('share_created', { method: 'image' });
+      } catch { await onShareText(); }
+    } catch { await onShareText(); }
   };
 
-  const onOpenSafeView = () => {
-    if (!result.url) return;
-    setSafeViewOpen(true);
-  };
-
+  const onOpenSafeView = () => { if (result.url) setSafeViewOpen(true); };
   const onConfirmOpenLink = async () => {
     setSafeViewOpen(false);
     if (!result.url) return;
-    try {
-      await WebBrowser.openBrowserAsync(result.url);
-    } catch {
-      console.log("[Browser] Failed to open");
-    }
+    try { await WebBrowser.openBrowserAsync(result.url); } catch { console.log("[Browser] Failed to open"); }
   };
-
-  const onAddToWatchlist = () => {
-    router.push("/watchlist");
-  };
-
+  const onAddToWatchlist = () => { router.push("/watchlist"); };
   const onStartMoneyCase = () => {
+    trackEvent('money_case_started', { domain });
     router.push(`/money-case?domain=${encodeURIComponent(domain)}&url=${encodeURIComponent(result.url || '')}&scanId=${encodeURIComponent(result.scanId || '')}` as any);
-  };
-
-  const getShareMsg = () => {
-    const sid = result?.scanId || (result as Record<string, unknown>)?.id;
-    const link = sid ? buildWebResultUrl(sid as string) : '';
-    return { link, msg: `REAiL: ${getBadgeLabel(badge)} • ${score}/100 — ${domain}\n${link}` };
   };
 
   const onShareWhatsApp = async () => {
     const { msg } = getShareMsg();
-    try { await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(msg)}`); } catch { await onShareText(); }
+    try { await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(msg)}`); trackEvent('share_created', { method: 'whatsapp' }); } catch { await onShareText(); }
   };
-
   const onShareSMS = async () => {
     const { msg } = getShareMsg();
     if (Platform.OS === 'web') { await onShareText(); return; }
     const smsUrl = Platform.OS === 'ios' ? `sms:&body=${encodeURIComponent(msg)}` : `sms:?body=${encodeURIComponent(msg)}`;
-    try { await Linking.openURL(smsUrl); } catch { await onShareText(); }
+    try { await Linking.openURL(smsUrl); trackEvent('share_created', { method: 'sms' }); } catch { await onShareText(); }
   };
-
   const onShareEmail = async () => {
     const { msg } = getShareMsg();
     const subj = `REAiL Scan: ${getBadgeLabel(badge)} - ${domain}`;
-    try { await Linking.openURL(`mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(msg)}`); } catch { await onShareText(); }
+    try { await Linking.openURL(`mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(msg)}`); trackEvent('share_created', { method: 'email' }); } catch { await onShareText(); }
   };
 
   const onSubmitReport = async () => {
@@ -493,11 +419,7 @@ export default function ResultScreen() {
       });
       if (resp) {
         setReportSuccess(true);
-        setTimeout(() => {
-          setReportModalOpen(false);
-          setReportSuccess(false);
-          setReportDescription("");
-        }, 1500);
+        setTimeout(() => { setReportModalOpen(false); setReportSuccess(false); setReportDescription(""); }, 1500);
       } else {
         Alert.alert("Error", "Could not submit report. Please try again.");
       }
@@ -508,234 +430,60 @@ export default function ResultScreen() {
     }
   };
 
-  const toggleExpand = (k: ReasonKey) => {
-    setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
-  };
+  const showSkeleton = !parsedPayload && !cached && (loadingRemote || !scanIdStr);
 
-  const toggleEvidenceExpand = (id: string) => {
-    setExpandedEvidence((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const getEvidenceStatusIcon = (status: EvidenceStatus) => {
-    switch (status) {
-      case 'pass':
-        return <FileCheck size={18} color={Colors.verified} strokeWidth={2} />;
-      case 'warn':
-        return <FileQuestion size={18} color={Colors.unverified} strokeWidth={2} />;
-      case 'fail':
-        return <FileX size={18} color={Colors.highRisk} strokeWidth={2} />;
-      case 'pending':
-        return <FileClock size={18} color={Colors.textTertiary} strokeWidth={2} />;
-      default:
-        return <FileQuestion size={18} color={Colors.textTertiary} strokeWidth={2} />;
-    }
-  };
-
-  const getEvidenceStatusColor = (status: EvidenceStatus) => {
-    switch (status) {
-      case 'pass': return Colors.verified;
-      case 'warn': return Colors.unverified;
-      case 'fail': return Colors.highRisk;
-      case 'pending': return Colors.textTertiary;
-      default: return Colors.textTertiary;
-    }
-  };
+  if (showSkeleton && loadingRemote) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+          <View style={styles.header}>
+            <Pressable onPress={() => router.replace("/")} style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}>
+              <ArrowLeft size={22} color="white" strokeWidth={2} />
+            </Pressable>
+            <Text style={styles.headerTitle}>Scan Result</Text>
+            <View style={styles.headerBtn} />
+          </View>
+        </SafeAreaView>
+        <ResultSkeleton />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.header}>
-          <Pressable 
-            onPress={() => router.replace("/")} 
-            style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
-          >
+          <Pressable onPress={() => router.replace("/")} style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}>
             <ArrowLeft size={22} color="white" strokeWidth={2} />
           </Pressable>
           <Text style={styles.headerTitle}>Scan Result</Text>
-          <Pressable 
-            onPress={onShareText} 
-            style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
-          >
+          <Pressable onPress={onShareText} style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}>
             <Share2 size={20} color="white" strokeWidth={2} />
           </Pressable>
         </View>
       </SafeAreaView>
 
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View 
-          style={[
-            styles.mainCard,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            }
-          ]}
-        >
-          <View style={styles.badgeSection}>
-            <View style={[styles.badgeIconContainer, { backgroundColor: badgeBg, borderColor: `${badgeColor}40` }]}>
-              <BadgeIcon badge={badge} size={40} />
-            </View>
-            <BadgePill badge={badge} size="hero" showSubtitle />
-            <Text style={styles.domainText}>{domain}</Text>
-          </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {result.isMock && <MockBanner />}
 
-          <View style={styles.scoreSection}>
-            <Pressable 
-              onPress={() => setScoreTooltipOpen(true)}
-              style={styles.scoreCircle}
-            >
-              <Text style={[styles.scoreValue, { color: badgeColor }]}>{score}</Text>
-              <Text style={styles.scoreLabel}>Risk Score</Text>
-              <View style={styles.scoreTooltipIcon}>
-                <Info size={10} color={Colors.textTertiary} strokeWidth={2} />
-              </View>
-            </Pressable>
-            <View style={styles.scoreBarContainer}>
-              <View style={styles.scoreBarTrack}>
-                <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: badgeColor }]} />
-              </View>
-              <View style={styles.scoreLabels}>
-                <Text style={styles.scoreLabelText}>0</Text>
-                <Text style={styles.scoreLabelText}>100</Text>
-              </View>
-            </View>
-          </View>
+        <DecisionCard
+          badge={badge}
+          score={score}
+          domain={domain}
+          badgeColor={badgeColor}
+          badgeBg={badgeBg}
+          fadeAnim={fadeAnim}
+          scaleAnim={scaleAnim}
+          loadingRemote={loadingRemote}
+          remoteError={remoteError}
+          scoreBreakdown={scoreBreakdown}
+          evidenceImpacts={evidenceImpacts}
+          topReasons={topReasons}
+          onDisclaimerPress={() => setDisclaimerOpen(true)}
+          onScoreTooltipPress={() => setScoreTooltipOpen(true)}
+        />
 
-          <Pressable 
-            onPress={() => setWhyScoreOpen(!whyScoreOpen)} 
-            style={({ pressed }) => [styles.whyScoreBtn, pressed && styles.whyScoreBtnPressed]}
-          >
-            <HelpCircle size={14} color={Colors.accent} strokeWidth={2} />
-            <Text style={styles.whyScoreText}>Why this score?</Text>
-            {whyScoreOpen ? (
-              <ChevronDown size={16} color={Colors.textTertiary} strokeWidth={2} />
-            ) : (
-              <ChevronRight size={16} color={Colors.textTertiary} strokeWidth={2} />
-            )}
-          </Pressable>
-
-          {whyScoreOpen && (
-            <View style={styles.whyScoreContent}>
-              {scoreBreakdown && scoreBreakdown.adjustments.length > 0 ? (
-                <>
-                  <View style={styles.scoreBreakdownHeader}>
-                    <Text style={styles.scoreBreakdownBase}>Base Score: {scoreBreakdown.baseScore}</Text>
-                  </View>
-                  {scoreBreakdown.adjustments.map((adj, idx) => (
-                    <View key={idx} style={styles.whyScoreRow}>
-                      <View style={[
-                        styles.whyScoreIconWrap, 
-                        { backgroundColor: adj.impact > 0 ? `${Colors.verified}20` : adj.impact < -20 ? `${Colors.highRisk}20` : `${Colors.unverified}20` }
-                      ]}>
-                        <Text style={[
-                          styles.impactText,
-                          { color: adj.impact > 0 ? Colors.verified : adj.impact < -20 ? Colors.highRisk : Colors.unverified }
-                        ]}>
-                          {formatScoreImpact(adj.impact)}
-                        </Text>
-                      </View>
-                      <View style={styles.whyScoreTextWrap}>
-                        <Text style={styles.whyScoreTitle}>{getProviderLabel(adj.provider)}</Text>
-                        <Text style={styles.whyScoreSummary}>{adj.reason}</Text>
-                      </View>
-                      <View style={[
-                        styles.severityBadge,
-                        { backgroundColor: adj.severity === 'critical' ? `${Colors.highRisk}20` : adj.severity === 'major' ? `${Colors.unverified}20` : `${Colors.textTertiary}20` }
-                      ]}>
-                        <Text style={[
-                          styles.severityText,
-                          { color: adj.severity === 'critical' ? Colors.highRisk : adj.severity === 'major' ? Colors.unverified : Colors.textTertiary }
-                        ]}>
-                          {adj.severity.toUpperCase()}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                  <View style={styles.scoreBreakdownFooter}>
-                    <Text style={styles.scoreBreakdownFinal}>Final Score: {scoreBreakdown.finalScore}</Text>
-                  </View>
-                </>
-              ) : evidenceImpacts.length > 0 ? (
-                evidenceImpacts.map((item, idx) => (
-                  <View key={idx} style={styles.whyScoreRow}>
-                    <View style={[
-                      styles.whyScoreIconWrap, 
-                      { backgroundColor: item.impact > 0 ? `${Colors.verified}20` : item.impact < -20 ? `${Colors.highRisk}20` : `${Colors.unverified}20` }
-                    ]}>
-                      <Text style={[
-                        styles.impactText,
-                        { color: item.impact > 0 ? Colors.verified : item.impact < -20 ? Colors.highRisk : Colors.unverified }
-                      ]}>
-                        {formatScoreImpact(item.impact)}
-                      </Text>
-                    </View>
-                    <View style={styles.whyScoreTextWrap}>
-                      <Text style={styles.whyScoreTitle}>{item.provider}</Text>
-                      <Text style={styles.whyScoreSummary}>{item.summary}</Text>
-                    </View>
-                    <View style={[
-                      styles.statusChip,
-                      { backgroundColor: `${getStatusColor(item.status)}20` }
-                    ]}>
-                      <Text style={[styles.statusChipText, { color: getStatusColor(item.status) }]}>
-                        {getStatusLabel(item.status)}
-                      </Text>
-                    </View>
-                  </View>
-                ))
-              ) : topReasons.length > 0 ? (
-                topReasons.map((r, idx) => {
-                  const IconComponent = REASON_ICONS[r.key as ReasonKey];
-                  return (
-                    <View key={idx} style={styles.whyScoreRow}>
-                      <View style={styles.whyScoreIconWrap}>
-                        <IconComponent size={14} color={Colors.accent} strokeWidth={2} />
-                      </View>
-                      <View style={styles.whyScoreTextWrap}>
-                        <Text style={styles.whyScoreTitle}>{r.title}</Text>
-                        <Text style={styles.whyScoreSummary}>{r.summary}</Text>
-                      </View>
-                    </View>
-                  );
-                })
-              ) : (
-                <Text style={styles.whyScoreBullet}>
-                  Not enough evidence to confirm authenticity. Use context and cross-check with other sources.
-                </Text>
-              )}
-            </View>
-          )}
-
-          {badge === 'HIGH_RISK' && score >= 35 && score <= 50 && (
-            <View style={styles.borderlineCard}>
-              <AlertTriangle size={14} color={Colors.unverified} strokeWidth={2} />
-              <View style={styles.borderlineTextWrap}>
-                <Text style={styles.borderlineTitle}>Borderline: additional review queued</Text>
-                <Text style={styles.borderlineDesc}>This is not a final accusation—signals require verification.</Text>
-              </View>
-            </View>
-          )}
-
-          {loadingRemote && (
-            <Text style={styles.loadingText}>Loading shared result…</Text>
-          )}
-          {!!remoteError && (
-            <Text style={styles.errorText}>{remoteError}</Text>
-          )}
-
-          <View style={styles.heroSubtitleRow}>
-            <Text style={styles.heroSubtitle}>Risk-based verification. Not absolute truth.</Text>
-            <Pressable 
-              onPress={() => setDisclaimerOpen(true)} 
-              style={({ pressed }) => [styles.infoBtn, pressed && styles.infoBtnPressed]}
-            >
-              <Info size={16} color={Colors.textTertiary} strokeWidth={2} />
-            </Pressable>
-          </View>
-        </Animated.View>
+        <TrustGraphCard profile={trustProfile} loading={trustLoading} />
 
         <View style={[styles.nbaSection, { borderColor: `${badgeColor}30` }]}>
           <View style={styles.nbaTitleRow}>
@@ -752,18 +500,12 @@ export default function ResultScreen() {
           </View>
           <View style={styles.nbaActions}>
             {!!result.url && (
-              <Pressable 
-                onPress={onOpenSafeView} 
-                style={({ pressed }) => [styles.nbaBtn, styles.nbaBtnPrimary, pressed && styles.nbaBtnPrimaryPressed]}
-              >
+              <Pressable onPress={onOpenSafeView} style={({ pressed }) => [styles.nbaBtn, styles.nbaBtnPrimary, pressed && styles.nbaBtnPrimaryPressed]}>
                 <Eye size={16} color="white" strokeWidth={2.5} />
                 <Text style={styles.nbaBtnPrimaryText}>{nbaContent.cta1}</Text>
               </Pressable>
             )}
-            <Pressable 
-              onPress={onAddToWatchlist} 
-              style={({ pressed }) => [styles.nbaBtn, styles.nbaBtnSecondary, pressed && styles.nbaBtnSecondaryPressed]}
-            >
+            <Pressable onPress={onAddToWatchlist} style={({ pressed }) => [styles.nbaBtn, styles.nbaBtnSecondary, pressed && styles.nbaBtnSecondaryPressed]}>
               <Plus size={16} color={Colors.primary} strokeWidth={2.5} />
               <Text style={styles.nbaBtnSecondaryText}>{nbaContent.cta2}</Text>
             </Pressable>
@@ -781,35 +523,22 @@ export default function ResultScreen() {
                 <Text style={styles.moneyCaseSubtitle}>Guidance, templates, and workflows for refund / dispute</Text>
               </View>
             </View>
-            <Pressable
-              onPress={onStartMoneyCase}
-              style={({ pressed }) => [styles.moneyCaseBtn, pressed && styles.moneyCaseBtnPressed]}
-            >
+            <Pressable onPress={onStartMoneyCase} style={({ pressed }) => [styles.moneyCaseBtn, pressed && styles.moneyCaseBtnPressed]}>
               <DollarSign size={16} color="white" strokeWidth={2.5} />
-              <Text style={styles.moneyCaseBtnText}>
-                Start Money Case
-              </Text>
+              <Text style={styles.moneyCaseBtnText}>Start Money Case</Text>
             </Pressable>
           </View>
         )}
 
         <View style={styles.actionsCard}>
-          <Pressable 
-            onPress={onShareText} 
-            style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
-          >
+          <Pressable onPress={onShareText} style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}>
             <Share2 size={18} color="white" strokeWidth={2.5} />
             <Text style={styles.primaryBtnText}>Share Report</Text>
           </Pressable>
-          
-          <Pressable 
-            onPress={onShareImage} 
-            style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
-          >
+          <Pressable onPress={onShareImage} style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}>
             <ImageIcon size={18} color="white" strokeWidth={2} />
             <Text style={styles.secondaryBtnText}>Share as Image</Text>
           </Pressable>
-
           <View style={styles.shareChannelsRow}>
             <Pressable onPress={onShareWhatsApp} style={({ pressed }) => [styles.shareChannelBtn, pressed && { opacity: 0.7 }]}>
               <MessageSquare size={14} color="#25D366" strokeWidth={2} />
@@ -826,242 +555,20 @@ export default function ResultScreen() {
           </View>
         </View>
 
-        <View style={styles.evidenceSection}>
-          <View style={styles.evidenceTitleRow}>
-            <Text style={styles.sectionTitle}>Evidence Pack</Text>
-            <View style={styles.evidenceHint}>
-              <Info size={12} color={Colors.textTertiary} strokeWidth={2} />
-              <Text style={styles.evidenceHintText}>Unlocks verified status</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionSubtitle}>
-            {hasRealEvidence ? "Verification sources and signals" : "Verification requires evidence, not claims"}
-          </Text>
+        <EvidenceSection
+          evidenceCards={evidenceCards}
+          hasRealEvidence={hasRealEvidence}
+          summary={result.summary}
+          metrics={result.metrics}
+        />
 
-          {result.summary && (
-            <View style={styles.evidenceSummaryCard}>
-              <Text style={styles.evidenceSummaryText}>{result.summary}</Text>
-            </View>
-          )}
-
-          {evidenceCards.map((item) => {
-            const isOpen = expandedEvidence[item.id] ?? false;
-            const isPending = item.status === 'pending';
-            const impact = getEvidenceScoreImpact(item);
-            const details = item.payload ? buildEvidenceDetails(item) : [];
-            const providerLabel = item.providerLabel || getProviderLabel(item.provider);
-            
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => !isPending && (item.payload || details.length > 0) && toggleEvidenceExpand(item.id)}
-                style={({ pressed }) => [
-                  styles.evidenceCard,
-                  isPending && styles.evidenceCardPending,
-                  pressed && !isPending && styles.evidenceCardPressed
-                ]}
-              >
-                <View style={styles.evidenceHeader}>
-                  <View style={[styles.evidenceIconContainer, isPending && styles.evidenceIconPending]}>
-                    {getEvidenceStatusIcon(item.status)}
-                  </View>
-                  <View style={styles.evidenceContentWrapper}>
-                    <View style={styles.evidenceProviderRow}>
-                      <Text style={[styles.evidenceProvider, isPending && styles.evidenceProviderPending]}>
-                        {providerLabel}
-                      </Text>
-                      <View style={[styles.evidenceStatusBadge, { backgroundColor: `${getEvidenceStatusColor(item.status)}20` }]}>
-                        <Text style={[styles.evidenceStatusText, { color: getEvidenceStatusColor(item.status) }]}>
-                          {getStatusLabel(item.status)}
-                        </Text>
-                      </View>
-                      {!isPending && impact !== 0 && (
-                        <View style={[
-                          styles.evidenceImpactBadge, 
-                          { backgroundColor: impact > 0 ? `${Colors.verified}20` : `${Colors.highRisk}20` }
-                        ]}>
-                          <Text style={[
-                            styles.evidenceImpactText, 
-                            { color: impact > 0 ? Colors.verified : Colors.highRisk }
-                          ]}>
-                            {formatScoreImpact(impact)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.evidenceSummary, isPending && styles.evidenceSummaryPending]} numberOfLines={isOpen ? undefined : 2}>
-                      {isPending ? "Coming soon" : item.summary}
-                    </Text>
-                    {item.weight !== undefined && !isPending && (
-                      <Text style={styles.evidenceWeight}>Weight: {item.weight}%</Text>
-                    )}
-                  </View>
-                  {(item.payload || details.length > 0) && !isPending && (
-                    isOpen ? (
-                      <ChevronDown size={18} color={Colors.textTertiary} strokeWidth={2} />
-                    ) : (
-                      <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2} />
-                    )
-                  )}
-                </View>
-
-                {isOpen && (details.length > 0 || item.payload) && (
-                  <View style={styles.evidencePayload}>
-                    {details.length > 0 && (
-                      <View style={styles.evidenceDetailsSection}>
-                        <Text style={styles.evidencePayloadTitle}>Details</Text>
-                        {details.map((d, i) => (
-                          <Text key={i} style={styles.evidenceDetailItem}>• {d}</Text>
-                        ))}
-                      </View>
-                    )}
-                    {item.payload && (
-                      <View style={styles.evidenceRawSection}>
-                        <Text style={styles.evidencePayloadTitle}>Raw Data</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <Text style={styles.evidencePayloadText}>
-                            {JSON.stringify(item.payload, null, 2)}
-                          </Text>
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {result.metrics && (
-          <View style={styles.metricsSection}>
-            <Text style={styles.sectionTitle}>Signals</Text>
-            <Text style={styles.sectionSubtitle}>Content patterns and risk indicators</Text>
-            
-            <View style={styles.metricsGrid}>
-              <View style={styles.metricCard}>
-                <View style={styles.metricHeader}>
-                  <Bot size={16} color={Colors.accent} strokeWidth={2} />
-                  <Text style={styles.metricLabel}>AI Probability</Text>
-                </View>
-                <Text style={styles.metricSubtitle}>content-level</Text>
-                <Text style={[styles.metricValue, { color: (result.metrics.aiProbability ?? 0) > 50 ? Colors.highRisk : Colors.verified }]}>
-                  {result.metrics.aiProbability ?? 50}%
-                </Text>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${result.metrics.aiProbability ?? 50}%`, backgroundColor: (result.metrics.aiProbability ?? 0) > 50 ? Colors.highRisk : Colors.verified }]} />
-                </View>
-                <View style={[styles.confidenceChip, { backgroundColor: `${getConfidenceColor(result.metrics.confidenceLevel)}20` }]}>
-                  <Text style={[styles.confidenceChipText, { color: getConfidenceColor(result.metrics.confidenceLevel) }]}>
-                    {getConfidenceLabel(result.metrics.confidenceLevel)}
-                  </Text>
-                </View>
-              </View>
-              
-              <View style={styles.metricCard}>
-                <View style={styles.metricHeader}>
-                  <User size={16} color={Colors.verified} strokeWidth={2} />
-                  <Text style={styles.metricLabel}>Human Probability</Text>
-                </View>
-                <Text style={styles.metricSubtitle}>content-level</Text>
-                <Text style={[styles.metricValue, { color: (result.metrics.humanProbability ?? 0) > 50 ? Colors.verified : Colors.unverified }]}>
-                  {result.metrics.humanProbability ?? 50}%
-                </Text>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${result.metrics.humanProbability ?? 50}%`, backgroundColor: (result.metrics.humanProbability ?? 0) > 50 ? Colors.verified : Colors.unverified }]} />
-                </View>
-              </View>
-              
-              <View style={styles.metricCard}>
-                <View style={styles.metricHeader}>
-                  <AlertTriangle size={16} color={Colors.unverified} strokeWidth={2} />
-                  <Text style={styles.metricLabel}>Manipulation Risk</Text>
-                </View>
-                <Text style={styles.metricSubtitle}>pattern-level</Text>
-                <Text style={[styles.metricValue, { color: (result.metrics.manipulationRisk ?? 0) > 50 ? Colors.highRisk : Colors.verified }]}>
-                  {result.metrics.manipulationRisk ?? 50}%
-                </Text>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${result.metrics.manipulationRisk ?? 50}%`, backgroundColor: (result.metrics.manipulationRisk ?? 0) > 50 ? Colors.highRisk : Colors.verified }]} />
-                </View>
-              </View>
-              
-              <View style={styles.metricCard}>
-                <View style={styles.metricHeader}>
-                  <ShieldAlert size={16} color={Colors.highRisk} strokeWidth={2} />
-                  <Text style={styles.metricLabel}>Scam Indicators</Text>
-                </View>
-                <Text style={styles.metricSubtitle}>platform-level</Text>
-                <Text style={[styles.metricValue, { color: (result.metrics.scamIndicators ?? 0) > 2 ? Colors.highRisk : Colors.verified }]}>
-                  {result.metrics.scamIndicators ?? 0}/10
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        <View style={styles.reasonsSection}>
-          <Text style={styles.sectionTitle}>Analysis Details</Text>
-          <Text style={styles.sectionSubtitle}>Tap to expand each category</Text>
-
-          {sortedReasonKeys.map((k) => {
-            const item = reasonsMerged[k];
-            const isOpen = expanded[k];
-            const hasDetails = (item.details?.length ?? 0) > 0;
-            const IconComponent = REASON_ICONS[k];
-            return (
-              <Pressable 
-                key={k} 
-                onPress={() => toggleExpand(k)} 
-                style={({ pressed }) => [
-                  styles.reasonCard,
-                  hasDetails && styles.reasonCardHighlighted,
-                  pressed && styles.reasonCardPressed
-                ]}
-              >
-                <View style={styles.reasonHeader}>
-                  <View style={[styles.reasonKeyBadge, hasDetails && styles.reasonKeyBadgeHighlighted]}>
-                    <IconComponent size={16} color={hasDetails ? Colors.accent : Colors.textTertiary} strokeWidth={2} />
-                  </View>
-                  <View style={styles.reasonContentWrapper}>
-                    <Text style={styles.reasonTitle}>{item.title}</Text>
-                    <Text style={styles.reasonSummary}>{item.summary}</Text>
-                  </View>
-                  {isOpen ? (
-                    <ChevronDown size={20} color={Colors.textTertiary} strokeWidth={2} />
-                  ) : (
-                    <ChevronRight size={20} color={Colors.textTertiary} strokeWidth={2} />
-                  )}
-                </View>
-
-                {isOpen && (
-                  <View style={styles.reasonBody}>
-                    {!!item.details?.length && (
-                      <View style={styles.reasonDetailsSection}>
-                        <Text style={styles.reasonBodyTitle}>Details</Text>
-                        {item.details.map((d, i) => (
-                          <Text key={i} style={styles.reasonBullet}>• {d}</Text>
-                        ))}
-                      </View>
-                    )}
-
-                    {!!item.whatWouldVerify?.length && (
-                      <View style={styles.reasonDetailsSection}>
-                        <Text style={styles.reasonBodyTitle}>What would verify this?</Text>
-                        {item.whatWouldVerify.map((d, i) => (
-                          <Text key={i} style={styles.reasonBullet}>• {d}</Text>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
+        <AnalysisDetails
+          reasonsMerged={reasonsMerged}
+          sortedReasonKeys={sortedReasonKeys}
+        />
 
         <View style={styles.shareCardSection}>
           <Text style={styles.sectionTitle}>Share Card Preview</Text>
-
           <View ref={shareCardRef} collapsable={false} style={[styles.shareCard, { borderColor: badgeColor, backgroundColor: `${badgeBg}` }]}>
             <View style={styles.shareCardHeader}>
               <Shield size={20} color={Colors.primary} strokeWidth={2} />
@@ -1076,16 +583,18 @@ export default function ResultScreen() {
                   {topReasons[0].title}: {topReasons[0].summary}
                 </Text>
               )}
+              {result.isMock && (
+                <Text style={[styles.shareCardReason, { color: Colors.unverified }]}>
+                  Simulated result — verification pending
+                </Text>
+              )}
             </View>
             <Text style={styles.shareCardFooter}>{shareCardFooter}</Text>
           </View>
         </View>
 
         <View style={styles.reportSection}>
-          <Pressable
-            onPress={() => setReportModalOpen(true)}
-            style={({ pressed }) => [styles.reportBtn, pressed && styles.reportBtnPressed]}
-          >
+          <Pressable onPress={() => setReportModalOpen(true)} style={({ pressed }) => [styles.reportBtn, pressed && styles.reportBtnPressed]}>
             <AlertTriangle size={16} color={Colors.unverified} strokeWidth={2} />
             <Text style={styles.reportBtnText}>Report this URL</Text>
           </Pressable>
@@ -1094,14 +603,14 @@ export default function ResultScreen() {
 
         <View style={styles.fairnessSection}>
           <Pressable
-            onPress={() => router.push(`/appeal?scanId=${encodeURIComponent(result.scanId || '')}` as any)}
+            onPress={() => { trackEvent('appeal_submitted', { scanId: result.scanId ?? '' }); router.push(`/appeal?scanId=${encodeURIComponent(result.scanId || '')}` as any); }}
             style={({ pressed }) => [styles.fairnessBtn, pressed && { opacity: 0.7 }]}
           >
             <AlertTriangle size={14} color={Colors.textTertiary} strokeWidth={2} />
             <Text style={styles.fairnessBtnText}>Is this wrong? Submit an Appeal</Text>
           </Pressable>
           <Pressable
-            onPress={() => router.push('/claim' as any)}
+            onPress={() => { trackEvent('claim_submitted', { domain }); router.push('/claim' as any); }}
             style={({ pressed }) => [styles.fairnessBtn, pressed && { opacity: 0.7 }]}
           >
             <Shield size={14} color={Colors.textTertiary} strokeWidth={2} />
@@ -1109,10 +618,7 @@ export default function ResultScreen() {
           </Pressable>
         </View>
 
-        <Pressable 
-          onPress={() => router.replace("/")} 
-          style={({ pressed }) => [styles.newScanBtn, pressed && styles.newScanBtnPressed]}
-        >
+        <Pressable onPress={() => router.replace("/")} style={({ pressed }) => [styles.newScanBtn, pressed && styles.newScanBtnPressed]}>
           <RefreshCw size={18} color={Colors.primary} strokeWidth={2} />
           <Text style={styles.newScanText}>Scan Another Link</Text>
         </Pressable>
