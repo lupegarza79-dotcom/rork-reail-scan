@@ -8,6 +8,7 @@ import {
   Platform,
   Alert,
   Animated,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -43,10 +44,13 @@ import {
   UserCheck,
   LinkIcon,
   Zap,
+  DollarSign,
+  Mail,
 } from "lucide-react-native";
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanWithEvidence, reportScan } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
+import { createShareLink } from "../utils/walletShare";
 import BadgePill, { getBadgeColor, getBadgeBg, getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
 import { 
@@ -188,6 +192,7 @@ export default function ResultScreen() {
   const [reportDescription, setReportDescription] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [creatingShareLink, setCreatingShareLink] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -447,6 +452,47 @@ export default function ResultScreen() {
 
   const onAddToWatchlist = () => {
     router.push("/watchlist");
+  };
+
+  const onStartMoneyCase = async () => {
+    if (!result.url && !domain) return;
+    setCreatingShareLink(true);
+    try {
+      const shareData = await createShareLink(result.url || `https://${domain}`);
+      if (shareData?.token) {
+        router.push(`/s/${shareData.token}`);
+      } else {
+        Alert.alert("Error", "Could not create share link. Try again.");
+      }
+    } catch {
+      Alert.alert("Error", "Could not create share link. Try again.");
+    } finally {
+      setCreatingShareLink(false);
+    }
+  };
+
+  const getShareMsg = () => {
+    const sid = result?.scanId || (result as Record<string, unknown>)?.id;
+    const link = sid ? buildWebResultUrl(sid as string) : '';
+    return { link, msg: `REAiL: ${getBadgeLabel(badge)} • ${score}/100 — ${domain}\n${link}` };
+  };
+
+  const onShareWhatsApp = async () => {
+    const { msg } = getShareMsg();
+    try { await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(msg)}`); } catch { await onShareText(); }
+  };
+
+  const onShareSMS = async () => {
+    const { msg } = getShareMsg();
+    if (Platform.OS === 'web') { await onShareText(); return; }
+    const smsUrl = Platform.OS === 'ios' ? `sms:&body=${encodeURIComponent(msg)}` : `sms:?body=${encodeURIComponent(msg)}`;
+    try { await Linking.openURL(smsUrl); } catch { await onShareText(); }
+  };
+
+  const onShareEmail = async () => {
+    const { msg } = getShareMsg();
+    const subj = `REAiL Scan: ${getBadgeLabel(badge)} - ${domain}`;
+    try { await Linking.openURL(`mailto:?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(msg)}`); } catch { await onShareText(); }
   };
 
   const onSubmitReport = async () => {
@@ -728,6 +774,30 @@ export default function ResultScreen() {
           </View>
         </View>
 
+        {badge === "HIGH_RISK" && (
+          <View style={styles.moneyCaseCard}>
+            <View style={styles.moneyCaseTitleRow}>
+              <View style={styles.moneyCaseIcon}>
+                <DollarSign size={20} color={Colors.highRisk} strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.moneyCaseTitle}>Get your money back</Text>
+                <Text style={styles.moneyCaseSubtitle}>Guidance, templates, and workflows for refund / dispute</Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={onStartMoneyCase}
+              disabled={creatingShareLink}
+              style={({ pressed }) => [styles.moneyCaseBtn, pressed && styles.moneyCaseBtnPressed, creatingShareLink && { opacity: 0.6 }]}
+            >
+              <DollarSign size={16} color="white" strokeWidth={2.5} />
+              <Text style={styles.moneyCaseBtnText}>
+                {creatingShareLink ? 'Creating case…' : 'Start Money Case'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
         <View style={styles.actionsCard}>
           <Pressable 
             onPress={onShareText} 
@@ -744,6 +814,21 @@ export default function ResultScreen() {
             <ImageIcon size={18} color="white" strokeWidth={2} />
             <Text style={styles.secondaryBtnText}>Share as Image</Text>
           </Pressable>
+
+          <View style={styles.shareChannelsRow}>
+            <Pressable onPress={onShareWhatsApp} style={({ pressed }) => [styles.shareChannelBtn, pressed && { opacity: 0.7 }]}>
+              <MessageSquare size={14} color="#25D366" strokeWidth={2} />
+              <Text style={styles.shareChannelText}>WhatsApp</Text>
+            </Pressable>
+            <Pressable onPress={onShareSMS} style={({ pressed }) => [styles.shareChannelBtn, pressed && { opacity: 0.7 }]}>
+              <MessageSquare size={14} color={Colors.accent} strokeWidth={2} />
+              <Text style={styles.shareChannelText}>SMS</Text>
+            </Pressable>
+            <Pressable onPress={onShareEmail} style={({ pressed }) => [styles.shareChannelBtn, pressed && { opacity: 0.7 }]}>
+              <Mail size={14} color={Colors.primary} strokeWidth={2} />
+              <Text style={styles.shareChannelText}>Email</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.evidenceSection}>

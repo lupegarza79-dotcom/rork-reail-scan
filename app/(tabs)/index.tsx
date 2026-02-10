@@ -10,11 +10,14 @@ import {
   Platform,
   StyleSheet,
   Modal,
+  ScrollView,
+  Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Settings, Shield, Clipboard as ClipboardIcon, Info, X } from "lucide-react-native";
+import { Settings, Shield, Clipboard as ClipboardIcon, Info, X, ChevronDown, ChevronUp, Upload } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
 import Colors from "@/constants/colors";
 
 const FIRST_SCAN_KEY = "reail_first_scan_shown";
@@ -24,6 +27,10 @@ export default function ScanHomeScreen() {
   const [input, setInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [showFirstScanTip, setShowFirstScanTip] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advSaveHistory, setAdvSaveHistory] = useState(true);
+  const [advCreateAlert, setAdvCreateAlert] = useState(true);
+  const [advGenerateCase, setAdvGenerateCase] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -56,6 +63,21 @@ export default function ScanHomeScreen() {
     router.push(`/scanning?url=${encodeURIComponent(cleanUrl)}`);
   };
 
+  const onUploadFile = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return;
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+      if (res.canceled) return;
+      const uri = res.assets?.[0]?.uri;
+      if (!uri) return;
+      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}`);
+    } catch {}
+  };
+
   const platforms = [
     { name: "TikTok", color: "#ff0050" },
     { name: "Instagram", color: "#E1306C" },
@@ -83,7 +105,7 @@ export default function ScanHomeScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.content}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.heroSection}>
           <Text style={styles.headline}>Verify any link</Text>
           <Text style={styles.subheadline}>in seconds</Text>
@@ -102,7 +124,9 @@ export default function ScanHomeScreen() {
               onChangeText={setInput}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder="Paste any link here…"
+              placeholder="Paste a link, offer, or message…"
+              multiline
+              blurOnSubmit
               placeholderTextColor={Colors.textTertiary}
               style={styles.input}
               autoCapitalize="none"
@@ -132,7 +156,71 @@ export default function ScanHomeScreen() {
             <Shield size={18} color="white" strokeWidth={2.5} />
             <Text style={styles.scanText}>SCAN NOW</Text>
           </Pressable>
+
+          <View style={styles.altActionsRow}>
+            <Pressable
+              onPress={onUploadFile}
+              style={({ pressed }) => [styles.altActionBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Upload size={15} color={Colors.textSecondary} strokeWidth={2} />
+              <Text style={styles.altActionText}>Upload file</Text>
+            </Pressable>
+            <View style={styles.altDivider} />
+            <Pressable
+              onPress={onPaste}
+              style={({ pressed }) => [styles.altActionBtn, pressed && { opacity: 0.7 }]}
+            >
+              <ClipboardIcon size={15} color={Colors.textSecondary} strokeWidth={2} />
+              <Text style={styles.altActionText}>Paste from clipboard</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.microcopy}>No login. Free. 30 seconds.</Text>
         </View>
+
+        <Pressable
+          onPress={() => setShowAdvanced(!showAdvanced)}
+          style={({ pressed }) => [styles.advancedToggle, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.advancedToggleText}>Advanced</Text>
+          {showAdvanced ? (
+            <ChevronUp size={14} color={Colors.textTertiary} strokeWidth={2} />
+          ) : (
+            <ChevronDown size={14} color={Colors.textTertiary} strokeWidth={2} />
+          )}
+        </Pressable>
+
+        {showAdvanced && (
+          <View style={styles.advancedContent}>
+            <View style={styles.advancedRow}>
+              <Text style={styles.advancedLabel}>Save to History on this device</Text>
+              <Switch
+                value={advSaveHistory}
+                onValueChange={setAdvSaveHistory}
+                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
+                thumbColor="white"
+              />
+            </View>
+            <View style={styles.advancedRow}>
+              <Text style={styles.advancedLabel}>Create Watchlist alert if High Risk</Text>
+              <Switch
+                value={advCreateAlert}
+                onValueChange={setAdvCreateAlert}
+                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
+                thumbColor="white"
+              />
+            </View>
+            <View style={[styles.advancedRow, { borderBottomWidth: 0 }]}>
+              <Text style={styles.advancedLabel}>Generate Money Case pack if I already paid</Text>
+              <Switch
+                value={advGenerateCase}
+                onValueChange={setAdvGenerateCase}
+                trackColor={{ false: Colors.backgroundTertiary, true: Colors.primary }}
+                thumbColor="white"
+              />
+            </View>
+          </View>
+        )}
 
         <View style={styles.platformsSection}>
           <Text style={styles.platformsLabel}>Works with</Text>
@@ -163,7 +251,7 @@ export default function ScanHomeScreen() {
             REAiL does not tell you what to believe—it shows signals and patterns.
           </Text>
         </View>
-      </View>
+      </ScrollView>
 
       <Modal
         visible={showFirstScanTip}
@@ -255,9 +343,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.backgroundSecondary,
   },
   content: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 24,
+    paddingBottom: 30,
   },
   heroSection: {
     marginBottom: 32,
@@ -498,5 +586,70 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 15,
     fontWeight: "700" as const,
+  },
+  altActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  altActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  altActionText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600" as const,
+  },
+  altDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: Colors.border,
+  },
+  microcopy: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    textAlign: "center" as const,
+    marginTop: 4,
+  },
+  advancedToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 20,
+  },
+  advancedToggleText: {
+    color: Colors.textTertiary,
+    fontSize: 13,
+    fontWeight: "600" as const,
+  },
+  advancedContent: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    marginBottom: 8,
+  },
+  advancedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  advancedLabel: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    marginRight: 12,
   },
 });

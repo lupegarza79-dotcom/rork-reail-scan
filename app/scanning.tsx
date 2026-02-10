@@ -67,11 +67,11 @@ export default function ScanningScreen() {
 
   const steps = useMemo(
     () => [
-      "Checking media integrity…",
-      "Checking claims…",
       "Checking source signals…",
+      "Matching scam patterns…",
       "Checking link safety…",
-      "Generating explainable reasons (A–F)…",
+      "Analyzing media integrity…",
+      "Generating explainable reasons…",
     ],
     []
   );
