@@ -13,6 +13,7 @@ CREATE INDEX IF NOT EXISTS idx_rate_limits_window_end ON rate_limits(window_end)
 
 ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role can manage rate limits" ON rate_limits;
 CREATE POLICY "Service role can manage rate limits"
   ON rate_limits FOR ALL
   USING (auth.role() = 'service_role');
@@ -38,6 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_scan_telemetry_events_provider ON scan_telemetry_
 
 ALTER TABLE scan_telemetry_events ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role can manage telemetry events" ON scan_telemetry_events;
 CREATE POLICY "Service role can manage telemetry events"
   ON scan_telemetry_events FOR ALL
   USING (auth.role() = 'service_role');

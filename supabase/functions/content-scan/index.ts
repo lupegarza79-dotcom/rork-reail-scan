@@ -1357,20 +1357,41 @@ serve(async (req: Request) => {
       ),
     ]);
 
-    const evidence: EvidenceItem[] = [
-      linkIntel,
-      domainIntel,
-      patternMatch,
-      googleSB,
-      virusTotal,
-      reputation,
-      contentIntel,
-    ];
-
-
     const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel];
-    const { score, badge } = calculateScore(evidence);
+
+    // ---- FAIRNESS GUARDRAILS ----
+    const rawResult = calculateScore(evidence);
+    let { score, badge } = rawResult;
     const domain = extractDomain((linkIntel.payload as any).finalUrl || url);
+
+    // Guardrail 1: Evidence Threshold Gate
+    // HIGH_RISK requires at least one hard signal (fail with impact <= -25)
+    const activeEvidence = evidence.filter(e => e.status !== 'unknown');
+    const hardSignals = evidence.filter(e => e.status === 'fail' && e.score_impact <= -25);
+    if (badge === 'HIGH_RISK' && hardSignals.length === 0) {
+      console.log('[Fairness] HIGH_RISK downgraded to UNVERIFIED: no hard signals');
+      badge = 'UNVERIFIED';
+      score = Math.max(score, 45);
+    }
+    if (badge === 'HIGH_RISK' && activeEvidence.length < 2) {
+      console.log('[Fairness] HIGH_RISK downgraded to UNVERIFIED: insufficient evidence');
+      badge = 'UNVERIFIED';
+      score = Math.max(score, 40);
+    }
+
+    // Guardrail 2: Auditor Engine — detect contradictions
+    const passCount = evidence.filter(e => e.status === 'pass').length;
+    const failCount = evidence.filter(e => e.status === 'fail').length;
+    let reviewRequired = false;
+    if (passCount >= 2 && failCount >= 2) {
+      reviewRequired = true;
+      console.log('[Fairness] REVIEW_REQUIRED: provider contradictions detected');
+    }
+    if (score >= 45 && score <= 55) {
+      reviewRequired = true;
+      console.log('[Fairness] REVIEW_REQUIRED: borderline score', score);
+    }
+
     const summary = generateSummary(badge, evidence, domain);
     const platform = detectPlatform(url);
 
@@ -1384,6 +1405,7 @@ serve(async (req: Request) => {
       })),
       finalScore: score,
       badge,
+      reviewRequired,
     };
 
     const { data: scanResult, error: scanError } = await supabase
@@ -1420,6 +1442,15 @@ serve(async (req: Request) => {
     const { error: evidenceError } = await supabase.from("scan_evidence").insert(evidenceRows);
     if (evidenceError) console.error("[content-scan] Evidence insert error:", evidenceError);
 
+    // Upsert trust graph
+    try {
+      await supabase.rpc("upsert_domain_trust", { p_domain: domain, p_badge: badge, p_score: score });
+      await supabase.from("domain_scan_edges").insert({ domain, scan_id: scanResult.id, badge, score });
+      console.log("[content-scan] Trust graph updated for:", domain);
+    } catch (trustErr) {
+      console.log("[content-scan] Trust graph upsert failed (non-fatal):", trustErr);
+    }
+
     await setCachedScan(supabase, cacheKey, {
       badge, score, summary, domain, platform,
       final_url: (linkIntel.payload as any).finalUrl,
@@ -1429,6 +1460,7 @@ serve(async (req: Request) => {
     const response = {
       ok: true,
       scan_id: scanResult.id, badge, score, summary, cache_hit: false,
+      review_required: reviewRequired,
       rate_limit: {
         remaining: rateCheck.remaining,
         limit: rateCheck.limit,

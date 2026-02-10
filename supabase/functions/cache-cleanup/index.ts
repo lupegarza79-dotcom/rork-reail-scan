@@ -1,18 +1,19 @@
 // @ts-nocheck
-/**
- * Supabase Edge Function: cache-cleanup
- *
- * Ejecuta la función Postgres `cleanup_expired_cache()` para
- * eliminar entradas expiradas de `scan_cache`.
- *
- * GET  => health-check (estado de variables de entorno)
- * POST => ejecuta cleanup_expired_cache()
- */
+// Supabase Edge Function: cache-cleanup
+//
+// Comprehensive scheduled cleanup for all ephemeral data:
+// - scan_cache (expired entries)
+// - wallet_share_links (expired share links)
+// - rate_limits (stale windows)
+// - scan_telemetry_events (retention purge, default 30 days)
+//
+// GET  => health-check
+// POST => run all cleanup via run_all_cleanup() RPC
+//
+// Schedule: cron(0 */3 * * *) -- every 3 hours
 
-const _server = "https://deno.land/std@0.177.0/http/server.ts";
-const _supa = "https://esm.sh/@supabase/supabase-js@2.39.0";
-const { serve } = await import(_server);
-const { createClient } = await import(_supa) as any;
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -24,149 +25,137 @@ const corsHeaders: Record<string, string> = {
 const ENDPOINT = "cache-cleanup";
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error(
-    `[${ENDPOINT}] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`,
-  );
+function getSupabase() {
+  const url = Deno.env.get("PROJECT_URL") ?? Deno.env.get("SUPABASE_URL") ?? "";
+  const key = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key) {
+    throw new Error("Missing PROJECT_URL/SUPABASE_URL or SERVICE_ROLE_KEY");
+  }
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 serve(async (req: Request): Promise<Response> => {
-  // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
-  // Health-check
   if (req.method === "GET") {
-    const secretsOk = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+    const url = Deno.env.get("PROJECT_URL") ?? Deno.env.get("SUPABASE_URL") ?? "";
+    const key = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const secretsOk = Boolean(url && key);
 
-    const body = {
+    return new Response(JSON.stringify({
       ok: secretsOk,
       endpoint: ENDPOINT,
       details: {
         env: {
-          supabase_url: !!SUPABASE_URL,
-          supabase_service_role_key: !!SUPABASE_SERVICE_ROLE_KEY,
+          project_url: !!url,
+          service_role_key: !!key,
         },
+        schedule: "cron(0 */3 * * *)",
+        cleans: ["scan_cache", "wallet_share_links", "rate_limits", "scan_telemetry_events"],
       },
       timestamp: new Date().toISOString(),
-    };
-
-    return new Response(JSON.stringify(body), {
+    }), {
       status: secretsOk ? 200 : 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // Sólo aceptamos POST para ejecutar la limpieza
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        endpoint: ENDPOINT,
-        error_code: "method_not_allowed",
-        message: "Method not allowed. Use POST or GET.",
-      }),
-      {
-        status: 405,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      },
-    );
+    return new Response(JSON.stringify({
+      ok: false,
+      endpoint: ENDPOINT,
+      error_code: "method_not_allowed",
+      message: "Use POST to run cleanup, GET for health check.",
+    }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  const startTime = Date.now();
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
+    const supabase = getSupabase();
 
-    // Ejecuta la función Postgres definida por CODEX:
-    // CREATE OR REPLACE FUNCTION cleanup_expired_cache()
-    const { data, error } = await supabase.rpc("cleanup_expired_cache");
+    // Try the unified run_all_cleanup() RPC first
+    const { data: unified, error: unifiedErr } = await supabase.rpc("run_all_cleanup");
 
-    if (error) {
-      console.error(`[${ENDPOINT}] cleanup_expired_cache error:`, error);
-
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          endpoint: ENDPOINT,
-          error_code: "cache_cleanup_failed",
-          message: "Failed to clean up expired cache entries.",
-          details: {
-            code: error.code,
-            hint: error.hint ?? null,
-            message: error.message,
-          },
-        }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-    }
-
-    const deleted =
-      typeof data === "number"
-        ? data
-        : (data as { deleted?: number } | null)?.deleted ?? 0;
-
-    if ( VERBOSE ) {
-      console.log(
-        `[${ENDPOINT}] cleanup_expired_cache removed ${deleted} rows`,
-      );
-    }
-
-    return new Response(
-      JSON.stringify({
+    if (!unifiedErr && unified) {
+      const latency = Date.now() - startTime;
+      if (VERBOSE) {
+        console.log(`[${ENDPOINT}] run_all_cleanup completed in ${latency}ms:`, unified);
+      }
+      return new Response(JSON.stringify({
         ok: true,
         endpoint: ENDPOINT,
-        deleted,
+        method: "unified",
+        result: unified,
+        latency_ms: latency,
         timestamp: new Date().toISOString(),
-      }),
-      {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-  } catch (err) {
-    console.error(`[${ENDPOINT}] unexpected error:`, err);
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        endpoint: ENDPOINT,
-        error_code: "unexpected_error",
-        message: "Unexpected error while cleaning up cache.",
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      },
-    );
+    // Fallback: run each cleanup individually
+    if (VERBOSE) {
+      console.log(`[${ENDPOINT}] run_all_cleanup not available, running individually`);
+    }
+
+    const results: Record<string, number | string> = {};
+
+    const { data: cacheResult, error: cacheErr } = await supabase.rpc("cleanup_expired_cache");
+    if (cacheErr) {
+      console.log(`[${ENDPOINT}] cleanup_expired_cache error:`, cacheErr.message);
+      results.cache = "error";
+    } else {
+      results.cache_deleted = typeof cacheResult === "number" ? cacheResult : 0;
+    }
+
+    const { data: shareResult, error: shareErr } = await supabase.rpc("cleanup_expired_share_links");
+    if (shareErr) {
+      console.log(`[${ENDPOINT}] cleanup_expired_share_links error:`, shareErr.message);
+      results.share_links = "error";
+    } else {
+      results.share_links_deleted = typeof shareResult === "number" ? shareResult : 0;
+    }
+
+    const { data: rateResult, error: rateErr } = await supabase.rpc("cleanup_old_rate_limits");
+    if (rateErr) {
+      console.log(`[${ENDPOINT}] cleanup_old_rate_limits error:`, rateErr.message);
+      results.rate_limits = "error";
+    } else {
+      results.rate_limits_deleted = typeof rateResult === "number" ? rateResult : 0;
+    }
+
+    const { data: telemResult, error: telemErr } = await supabase.rpc("cleanup_old_telemetry", { retention_days: 30 });
+    if (telemErr) {
+      console.log(`[${ENDPOINT}] cleanup_old_telemetry error:`, telemErr.message);
+      results.telemetry = "error";
+    } else {
+      results.telemetry_deleted = typeof telemResult === "number" ? telemResult : 0;
+    }
+
+    const latency = Date.now() - startTime;
+    if (VERBOSE) {
+      console.log(`[${ENDPOINT}] Individual cleanup completed in ${latency}ms:`, results);
+    }
+
+    return new Response(JSON.stringify({
+      ok: true,
+      endpoint: ENDPOINT,
+      method: "individual",
+      result: results,
+      latency_ms: latency,
+      timestamp: new Date().toISOString(),
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  } catch (err) {
+    console.error(`[${ENDPOINT}] Error:`, err);
+    return new Response(JSON.stringify({
+      ok: false,
+      endpoint: ENDPOINT,
+      error_code: "unexpected_error",
+      message: err instanceof Error ? err.message : "Unexpected error during cleanup",
+      latency_ms: Date.now() - startTime,
+    }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
