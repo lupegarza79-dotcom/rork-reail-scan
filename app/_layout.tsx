@@ -73,6 +73,24 @@ function RootLayoutNav() {
           animation: 'slide_from_right',
         }} 
       />
+      <Stack.Screen 
+        name="appeal" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
+      <Stack.Screen 
+        name="claim" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
+      <Stack.Screen 
+        name="money-case" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

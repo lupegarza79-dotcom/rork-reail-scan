@@ -16,7 +16,7 @@ import {
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Settings, Shield, Clipboard as ClipboardIcon, Info, X, ChevronDown, ChevronUp, Upload } from "lucide-react-native";
+import { Lock, Shield, Clipboard as ClipboardIcon, Info, X, ChevronDown, ChevronUp, Upload } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import Colors from "@/constants/colors";
 
@@ -97,12 +97,10 @@ export default function ScanHomeScreen() {
           <Shield size={20} color={Colors.primary} strokeWidth={2.5} />
           <Text style={styles.logo}>REAiL</Text>
         </View>
-        <Pressable 
-          onPress={() => router.push("/settings")} 
-          style={styles.settingsBtn}
-        >
-          <Settings size={22} color={Colors.textSecondary} strokeWidth={2} />
-        </Pressable>
+        <View style={styles.settingsBtn}>
+          <Lock size={14} color={Colors.textSecondary} strokeWidth={2.5} />
+          <Text style={styles.privateText}>Private</Text>
+        </View>
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -335,12 +333,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   settingsBtn: {
-    width: 44,
-    height: 44,
+    flexDirection: "row" as const,
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: Colors.backgroundSecondary,
+  },
+  privateText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600" as const,
   },
   content: {
     paddingHorizontal: 20,

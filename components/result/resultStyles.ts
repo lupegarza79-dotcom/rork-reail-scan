@@ -1109,4 +1109,21 @@ export const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600" as const,
   },
+  fairnessSection: {
+    marginTop: 20,
+    alignItems: "center",
+    gap: 8,
+  },
+  fairnessBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  fairnessBtnText: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontWeight: "500" as const,
+  },
 });

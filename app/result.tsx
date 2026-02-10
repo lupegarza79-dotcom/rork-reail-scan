@@ -50,7 +50,7 @@ import {
 import { getCachedScanResult, cacheScanResult } from "../utils/scanCache";
 import { fetchScanWithEvidence, reportScan } from "../utils/api";
 import { buildWebResultUrl } from "../utils/deepLinking";
-import { createShareLink } from "../utils/walletShare";
+
 import BadgePill, { getBadgeColor, getBadgeBg, getBadgeLabel } from "@/components/ui/BadgePill";
 import Colors from "@/constants/colors";
 import { 
@@ -192,7 +192,6 @@ export default function ResultScreen() {
   const [reportDescription, setReportDescription] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
-  const [creatingShareLink, setCreatingShareLink] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -454,21 +453,8 @@ export default function ResultScreen() {
     router.push("/watchlist");
   };
 
-  const onStartMoneyCase = async () => {
-    if (!result.url && !domain) return;
-    setCreatingShareLink(true);
-    try {
-      const shareData = await createShareLink(result.url || `https://${domain}`);
-      if (shareData?.token) {
-        router.push(`/s/${shareData.token}`);
-      } else {
-        Alert.alert("Error", "Could not create share link. Try again.");
-      }
-    } catch {
-      Alert.alert("Error", "Could not create share link. Try again.");
-    } finally {
-      setCreatingShareLink(false);
-    }
+  const onStartMoneyCase = () => {
+    router.push(`/money-case?domain=${encodeURIComponent(domain)}&url=${encodeURIComponent(result.url || '')}&scanId=${encodeURIComponent(result.scanId || '')}` as any);
   };
 
   const getShareMsg = () => {
@@ -787,12 +773,11 @@ export default function ResultScreen() {
             </View>
             <Pressable
               onPress={onStartMoneyCase}
-              disabled={creatingShareLink}
-              style={({ pressed }) => [styles.moneyCaseBtn, pressed && styles.moneyCaseBtnPressed, creatingShareLink && { opacity: 0.6 }]}
+              style={({ pressed }) => [styles.moneyCaseBtn, pressed && styles.moneyCaseBtnPressed]}
             >
               <DollarSign size={16} color="white" strokeWidth={2.5} />
               <Text style={styles.moneyCaseBtnText}>
-                {creatingShareLink ? 'Creating case…' : 'Start Money Case'}
+                Start Money Case
               </Text>
             </Pressable>
           </View>
@@ -1095,6 +1080,23 @@ export default function ResultScreen() {
             <Text style={styles.reportBtnText}>Report this URL</Text>
           </Pressable>
           <Text style={styles.reportHint}>Help the community by flagging suspicious content</Text>
+        </View>
+
+        <View style={styles.fairnessSection}>
+          <Pressable
+            onPress={() => router.push(`/appeal?scanId=${encodeURIComponent(result.scanId || '')}` as any)}
+            style={({ pressed }) => [styles.fairnessBtn, pressed && { opacity: 0.7 }]}
+          >
+            <AlertTriangle size={14} color={Colors.textTertiary} strokeWidth={2} />
+            <Text style={styles.fairnessBtnText}>Is this wrong? Submit an Appeal</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/claim' as any)}
+            style={({ pressed }) => [styles.fairnessBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Shield size={14} color={Colors.textTertiary} strokeWidth={2} />
+            <Text style={styles.fairnessBtnText}>Claim this profile</Text>
+          </Pressable>
         </View>
 
         <Pressable 
