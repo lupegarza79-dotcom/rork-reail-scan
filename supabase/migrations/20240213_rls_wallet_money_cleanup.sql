@@ -1,14 +1,16 @@
 -- Migration 20240213: RLS + policies for wallet/money/appeal/claim tables + cleanup functions
--- SELF-CONTAINED & FULLY IDEMPOTENT:
---   - Creates all prerequisite tables IF NOT EXISTS (safety net if 20240212_z was skipped)
---   - All ALTER TABLE ENABLE RLS wrapped in table-existence checks
---   - All policies: DROP IF EXISTS then CREATE, inside existence-checked blocks
---   - Cleanup functions check table existence before DELETE
+-- SELF-CONTAINED & FULLY IDEMPOTENT
+--   Phase 1 — CREATE TABLE IF NOT EXISTS for every prerequisite table
+--   Phase 2 — Helper functions & triggers
+--   Phase 3 — RLS + policies (all guarded with to_regclass / DROP IF EXISTS)
+--   Phase 4 — Cleanup functions
 -- Safe on: fresh DB, partially-migrated DB, already-fully-migrated DB.
 
 -- ============================================================
--- 0a) wallet_share_links — ensure table exists before RLS
+-- PHASE 1: Ensure all tables exist
 -- ============================================================
+
+-- 1a) wallet_share_links
 CREATE TABLE IF NOT EXISTS public.wallet_share_links (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   token VARCHAR(32) UNIQUE NOT NULL,
@@ -41,9 +43,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
 END $$;
 
--- ============================================================
--- 0b) money_cases enums — ensure types exist
--- ============================================================
+-- 1b) money_cases enums
 DO $$ BEGIN
   CREATE TYPE money_case_issue AS ENUM (
     'unauthorized_charge','product_not_received','product_not_as_described',
@@ -71,9 +71,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 0c) money_cases — ensure table exists before RLS
--- ============================================================
+-- 1c) money_cases
 CREATE TABLE IF NOT EXISTS public.money_cases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   share_token VARCHAR(32),
@@ -119,9 +117,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
 END $$;
 
--- ============================================================
--- 0d) case_events — ensure table exists before RLS
--- ============================================================
+-- 1d) case_events
 CREATE TABLE IF NOT EXISTS public.case_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id UUID NOT NULL,
@@ -143,9 +139,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 0e) case_artifacts — ensure table exists before RLS
--- ============================================================
+-- 1e) case_artifacts
 CREATE TABLE IF NOT EXISTS public.case_artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id UUID NOT NULL,
@@ -169,9 +163,65 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- 1f) appeals
+CREATE TABLE IF NOT EXISTS public.appeals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scan_id UUID,
+  token TEXT,
+  device_id TEXT NOT NULL,
+  ip TEXT,
+  reason TEXT NOT NULL DEFAULT 'incorrect_classification',
+  message TEXT NOT NULL,
+  contact TEXT,
+  evidence_links TEXT[],
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'reviewing', 'accepted', 'rejected', 'closed')),
+  reviewer_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_appeals_scan_id ON public.appeals(scan_id);
+CREATE INDEX IF NOT EXISTS idx_appeals_device ON public.appeals(device_id);
+CREATE INDEX IF NOT EXISTS idx_appeals_status ON public.appeals(status);
+CREATE INDEX IF NOT EXISTS idx_appeals_created ON public.appeals(created_at DESC);
+
+DO $$ BEGIN
+  ALTER TABLE public.appeals
+    ADD CONSTRAINT appeals_scan_id_fkey
+    FOREIGN KEY (scan_id) REFERENCES public.scan_results(id) ON DELETE SET NULL;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_table THEN NULL;
+END $$;
+
+-- 1g) claims
+CREATE TABLE IF NOT EXISTS public.claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  domain TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  ip TEXT,
+  contact TEXT NOT NULL,
+  proof_method TEXT NOT NULL DEFAULT 'documentation'
+    CHECK (proof_method IN ('dns_txt', 'email_verification', 'documentation')),
+  evidence_links TEXT[],
+  message TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'reviewing', 'verified', 'rejected', 'closed')),
+  reviewer_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_claims_domain ON public.claims(domain);
+CREATE INDEX IF NOT EXISTS idx_claims_device ON public.claims(device_id);
+CREATE INDEX IF NOT EXISTS idx_claims_status ON public.claims(status);
+CREATE INDEX IF NOT EXISTS idx_claims_created ON public.claims(created_at DESC);
+
 -- ============================================================
--- 0f) Helper functions + trigger for money_cases
+-- PHASE 2: Helper functions & triggers
 -- ============================================================
+
 CREATE OR REPLACE FUNCTION update_money_case_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -239,8 +289,10 @@ END;
 $$;
 
 -- ============================================================
--- 1) wallet_share_links RLS + policies
+-- PHASE 3: RLS + policies for all tables
 -- ============================================================
+
+-- 3a) wallet_share_links
 DO $$ BEGIN
   IF to_regclass('public.wallet_share_links') IS NOT NULL THEN
     ALTER TABLE public.wallet_share_links ENABLE ROW LEVEL SECURITY;
@@ -291,9 +343,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 2) money_cases RLS + policies
--- ============================================================
+-- 3b) money_cases
 DO $$ BEGIN
   IF to_regclass('public.money_cases') IS NOT NULL THEN
     ALTER TABLE public.money_cases ENABLE ROW LEVEL SECURITY;
@@ -357,9 +407,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 3) case_events RLS + policies
--- ============================================================
+-- 3c) case_events
 DO $$ BEGIN
   IF to_regclass('public.case_events') IS NOT NULL THEN
     ALTER TABLE public.case_events ENABLE ROW LEVEL SECURITY;
@@ -392,9 +440,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 4) case_artifacts RLS + policies
--- ============================================================
+-- 3d) case_artifacts
 DO $$ BEGIN
   IF to_regclass('public.case_artifacts') IS NOT NULL THEN
     ALTER TABLE public.case_artifacts ENABLE ROW LEVEL SECURITY;
@@ -427,40 +473,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 5) Appeals table (TrustOps queue)
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.appeals (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  scan_id UUID,
-  token TEXT,
-  device_id TEXT NOT NULL,
-  ip TEXT,
-  reason TEXT NOT NULL DEFAULT 'incorrect_classification',
-  message TEXT NOT NULL,
-  contact TEXT,
-  evidence_links TEXT[],
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'reviewing', 'accepted', 'rejected', 'closed')),
-  reviewer_notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_appeals_scan_id ON public.appeals(scan_id);
-CREATE INDEX IF NOT EXISTS idx_appeals_device ON public.appeals(device_id);
-CREATE INDEX IF NOT EXISTS idx_appeals_status ON public.appeals(status);
-CREATE INDEX IF NOT EXISTS idx_appeals_created ON public.appeals(created_at DESC);
-
-DO $$ BEGIN
-  ALTER TABLE public.appeals
-    ADD CONSTRAINT appeals_scan_id_fkey
-    FOREIGN KEY (scan_id) REFERENCES public.scan_results(id) ON DELETE SET NULL;
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-  WHEN undefined_table THEN NULL;
-END $$;
-
+-- 3e) appeals
 DO $$ BEGIN
   IF to_regclass('public.appeals') IS NOT NULL THEN
     ALTER TABLE public.appeals ENABLE ROW LEVEL SECURITY;
@@ -487,31 +500,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- ============================================================
--- 6) Claims table (TrustOps queue)
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.claims (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  domain TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  ip TEXT,
-  contact TEXT NOT NULL,
-  proof_method TEXT NOT NULL DEFAULT 'documentation'
-    CHECK (proof_method IN ('dns_txt', 'email_verification', 'documentation')),
-  evidence_links TEXT[],
-  message TEXT,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'reviewing', 'verified', 'rejected', 'closed')),
-  reviewer_notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_claims_domain ON public.claims(domain);
-CREATE INDEX IF NOT EXISTS idx_claims_device ON public.claims(device_id);
-CREATE INDEX IF NOT EXISTS idx_claims_status ON public.claims(status);
-CREATE INDEX IF NOT EXISTS idx_claims_created ON public.claims(created_at DESC);
-
+-- 3f) claims
 DO $$ BEGIN
   IF to_regclass('public.claims') IS NOT NULL THEN
     ALTER TABLE public.claims ENABLE ROW LEVEL SECURITY;
@@ -539,8 +528,9 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- ============================================================
--- 7) Cleanup functions (resilient — check table existence)
+-- PHASE 4: Cleanup functions (resilient — check table existence)
 -- ============================================================
+
 CREATE OR REPLACE FUNCTION cleanup_old_rate_limits()
 RETURNS INTEGER
 LANGUAGE plpgsql
