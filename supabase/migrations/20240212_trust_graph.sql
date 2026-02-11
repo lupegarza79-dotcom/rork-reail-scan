@@ -3,11 +3,13 @@
 -- Tracks domain behavior over time for deterministic reputation scoring
 -- IDEMPOTENT: safe to re-run on any environment (fresh or existing)
 
--- 1) Add content_intel provider
-DO $$ BEGIN
+-- 1) Add content_intel provider (guard: type may not exist if 20240203 failed)
+DO $ BEGIN
   ALTER TYPE evidence_provider ADD VALUE IF NOT EXISTS 'content_intel';
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_object THEN NULL;
+END $;
 
 -- 2) Domain trust profiles – one row per domain, updated deterministically after each scan
 CREATE TABLE IF NOT EXISTS public.domain_trust_profiles (
@@ -39,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_dtp_avg_score ON public.domain_trust_profiles(avg
 CREATE TABLE IF NOT EXISTS public.domain_scan_edges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   domain TEXT NOT NULL REFERENCES public.domain_trust_profiles(domain) ON DELETE CASCADE,
-  scan_id UUID NOT NULL REFERENCES public.scan_results(id) ON DELETE CASCADE,
+  scan_id UUID NOT NULL,
   badge TEXT NOT NULL,
   score INTEGER NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -48,6 +50,15 @@ CREATE TABLE IF NOT EXISTS public.domain_scan_edges (
 CREATE INDEX IF NOT EXISTS idx_dse_domain ON public.domain_scan_edges(domain);
 CREATE INDEX IF NOT EXISTS idx_dse_scan_id ON public.domain_scan_edges(scan_id);
 CREATE INDEX IF NOT EXISTS idx_dse_created ON public.domain_scan_edges(created_at DESC);
+
+DO $ BEGIN
+  ALTER TABLE public.domain_scan_edges
+    ADD CONSTRAINT domain_scan_edges_scan_id_fkey
+    FOREIGN KEY (scan_id) REFERENCES public.scan_results(id) ON DELETE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_table THEN NULL;
+END $;
 
 -- 4) Domain relationships – tracks redirect chains, affiliate links, shared hosting
 CREATE TABLE IF NOT EXISTS public.domain_relationships (
@@ -121,10 +132,24 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 6) RLS — fully idempotent using DO $$ with pg_policies check + exception guard
-ALTER TABLE public.domain_trust_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.domain_scan_edges ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.domain_relationships ENABLE ROW LEVEL SECURITY;
+-- 6) RLS — fully idempotent using DO $ with to_regclass guard
+DO $ BEGIN
+  IF to_regclass('public.domain_trust_profiles') IS NOT NULL THEN
+    ALTER TABLE public.domain_trust_profiles ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF to_regclass('public.domain_scan_edges') IS NOT NULL THEN
+    ALTER TABLE public.domain_scan_edges ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF to_regclass('public.domain_relationships') IS NOT NULL THEN
+    ALTER TABLE public.domain_relationships ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $;
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'domain_trust_profiles' AND policyname = 'Service role manages trust profiles') THEN

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS wallet_share_links (
   token VARCHAR(32) UNIQUE NOT NULL,
   original_url TEXT NOT NULL,
   domain VARCHAR(255),
-  scan_id UUID REFERENCES scan_results(id) ON DELETE SET NULL,
+  scan_id UUID,
   badge VARCHAR(20),
   score INTEGER,
   top_red_flags JSONB DEFAULT '[]'::jsonb,
@@ -24,6 +24,15 @@ CREATE INDEX IF NOT EXISTS idx_wallet_share_token ON wallet_share_links(token);
 CREATE INDEX IF NOT EXISTS idx_wallet_share_expires ON wallet_share_links(expires_at);
 CREATE INDEX IF NOT EXISTS idx_wallet_share_domain ON wallet_share_links(domain);
 CREATE INDEX IF NOT EXISTS idx_wallet_share_created ON wallet_share_links(created_at DESC);
+
+DO $ BEGIN
+  ALTER TABLE wallet_share_links
+    ADD CONSTRAINT wallet_share_links_scan_id_fkey
+    FOREIGN KEY (scan_id) REFERENCES scan_results(id) ON DELETE SET NULL;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_table THEN NULL;
+END $;
 
 COMMENT ON TABLE wallet_share_links IS 'Share-to-Scan links for viral distribution of scan results';
 COMMENT ON COLUMN wallet_share_links.token IS 'Short unique token for shareable URL (/s/:token)';

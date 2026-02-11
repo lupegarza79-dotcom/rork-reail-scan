@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS money_cases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
   -- Link to share token (optional)
-  share_token VARCHAR(32) REFERENCES wallet_share_links(token) ON DELETE SET NULL,
-  scan_id UUID REFERENCES scan_results(id) ON DELETE SET NULL,
+  share_token VARCHAR(32),
+  scan_id UUID,
   
   -- Case info
   issue_type money_case_issue NOT NULL,
@@ -107,6 +107,24 @@ CREATE INDEX IF NOT EXISTS idx_money_cases_status ON money_cases(status);
 CREATE INDEX IF NOT EXISTS idx_money_cases_created ON money_cases(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_money_cases_merchant ON money_cases(merchant_domain);
 
+DO $ BEGIN
+  ALTER TABLE money_cases
+    ADD CONSTRAINT money_cases_share_token_fkey
+    FOREIGN KEY (share_token) REFERENCES wallet_share_links(token) ON DELETE SET NULL;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_table THEN NULL;
+END $;
+
+DO $ BEGIN
+  ALTER TABLE money_cases
+    ADD CONSTRAINT money_cases_scan_id_fkey
+    FOREIGN KEY (scan_id) REFERENCES scan_results(id) ON DELETE SET NULL;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_table THEN NULL;
+END $;
+
 COMMENT ON TABLE money_cases IS 'User-submitted payment dispute cases for Rail Pack generation';
 COMMENT ON COLUMN money_cases.rail_pack IS 'Generated Rail Pack with templates, checklists, and guidance';
 COMMENT ON COLUMN money_cases.amount_cents IS 'Transaction amount in cents to avoid floating point issues';
@@ -114,7 +132,7 @@ COMMENT ON COLUMN money_cases.amount_cents IS 'Transaction amount in cents to av
 -- Case events timeline
 CREATE TABLE IF NOT EXISTS case_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id UUID NOT NULL REFERENCES money_cases(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL,
   
   event_type VARCHAR(50) NOT NULL,
   title VARCHAR(255) NOT NULL,
@@ -128,12 +146,19 @@ CREATE INDEX IF NOT EXISTS idx_case_events_case ON case_events(case_id);
 CREATE INDEX IF NOT EXISTS idx_case_events_type ON case_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_case_events_created ON case_events(created_at);
 
+DO $ BEGIN
+  ALTER TABLE case_events
+    ADD CONSTRAINT case_events_case_id_fkey
+    FOREIGN KEY (case_id) REFERENCES money_cases(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $;
+
 COMMENT ON TABLE case_events IS 'Timeline of events for a money case';
 
 -- Case artifacts (proof uploads, documents)
 CREATE TABLE IF NOT EXISTS case_artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id UUID NOT NULL REFERENCES money_cases(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL,
   
   artifact_type VARCHAR(50) NOT NULL,
   filename VARCHAR(255),
@@ -149,6 +174,13 @@ CREATE TABLE IF NOT EXISTS case_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_case_artifacts_case ON case_artifacts(case_id);
 CREATE INDEX IF NOT EXISTS idx_case_artifacts_type ON case_artifacts(artifact_type);
+
+DO $ BEGIN
+  ALTER TABLE case_artifacts
+    ADD CONSTRAINT case_artifacts_case_id_fkey
+    FOREIGN KEY (case_id) REFERENCES money_cases(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $;
 
 COMMENT ON TABLE case_artifacts IS 'Uploaded proof and documents for money cases';
 
