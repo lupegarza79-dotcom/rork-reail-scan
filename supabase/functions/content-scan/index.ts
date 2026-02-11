@@ -274,6 +274,7 @@ async function runProvider(
     });
     return result;
   } catch (error) {
+    console.error(`[Provider] ${providerName} failed (fail-soft):`, error);
     telemetry.push({
       endpoint: ENDPOINT,
       event_type: "provider",
@@ -285,7 +286,15 @@ async function runProvider(
       device_id: deviceId,
       ip,
     });
-    throw error;
+    return {
+      provider: providerName,
+      provider_label: providerName,
+      status: "unknown" as EvidenceStatus,
+      summary: `Provider ${providerName} unavailable`,
+      weight: 0,
+      score_impact: 0,
+      payload: { error: "provider_failure", provider: providerName },
+    };
   }
 }
 

@@ -13,6 +13,8 @@ const corsHeaders = {
 };
 
 const ENDPOINT = "claim";
+const CLAIM_RATE_LIMIT = 3;
+const RATE_LIMIT_WINDOW_MINUTES = 60;
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for");
@@ -52,6 +54,29 @@ serve(async (req: Request) => {
     const deviceId = req.headers.get("x-device-id") || body.device_id || "anonymous";
     const ip = getClientIp(req);
 
+    const supabaseUrl = Deno.env.get("PROJECT_URL")!;
+    const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000);
+    const { count } = await supabase
+      .from("claims")
+      .select("*", { count: "exact", head: true })
+      .eq("device_id", deviceId)
+      .gte("created_at", windowStart.toISOString());
+
+    if ((count ?? 0) >= CLAIM_RATE_LIMIT) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "rate_limit_exceeded",
+        message: "Too many claims. Please try again later.",
+        endpoint: ENDPOINT,
+        retry_after_seconds: RATE_LIMIT_WINDOW_MINUTES * 60,
+        rate_limit: { remaining: 0, limit: CLAIM_RATE_LIMIT, window_seconds: RATE_LIMIT_WINDOW_MINUTES * 60 },
+      }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(RATE_LIMIT_WINDOW_MINUTES * 60) } });
+    }
+
     const domain = (body.domain || body.domain_or_profile || "").trim();
     const contact = (body.contact || body.claimant_email || "").trim();
 
@@ -72,10 +97,6 @@ serve(async (req: Request) => {
         endpoint: ENDPOINT,
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
-    const supabaseUrl = Deno.env.get("PROJECT_URL")!;
-    const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const claimRow = {
       domain,

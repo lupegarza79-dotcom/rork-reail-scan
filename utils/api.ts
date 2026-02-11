@@ -105,7 +105,7 @@ export async function fetchScanResultById(scanId: string): Promise<BackendScanRe
 
   try {
     console.log("[API] fetchScanResultById:", scanId);
-    const resp = await fetch(`${BASE_URL}/scan-result?id=${encodeURIComponent(scanId)}`, {
+    const resp = await fetch(`${BASE_URL}/scan-result?scanId=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });
@@ -263,7 +263,7 @@ export async function fetchScanEvidence(scanId: string): Promise<EvidenceCard[] 
 
   try {
     console.log("[API] fetchScanEvidence:", scanId);
-    const resp = await fetch(`${BASE_URL}/scan-evidence?id=${encodeURIComponent(scanId)}`, {
+    const resp = await fetch(`${BASE_URL}/scan-evidence?scanId=${encodeURIComponent(scanId)}`, {
       method: "GET",
       headers: await headers(),
     });

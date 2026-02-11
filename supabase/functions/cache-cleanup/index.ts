@@ -73,6 +73,18 @@ serve(async (req: Request): Promise<Response> => {
     }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  const authHeader = req.headers.get("authorization");
+  const svcKey = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const bearerToken = authHeader?.replace("Bearer ", "") ?? "";
+  if (!svcKey || bearerToken !== svcKey) {
+    return new Response(JSON.stringify({
+      ok: false,
+      endpoint: ENDPOINT,
+      error_code: "forbidden",
+      message: "This endpoint requires service-role authorization",
+    }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const startTime = Date.now();
   try {
     const supabase = getSupabase();

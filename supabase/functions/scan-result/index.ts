@@ -83,6 +83,18 @@ serve(async (req: Request) => {
       });
     }
 
+    if (scan.device_id && scan.device_id !== deviceId && deviceId === "anonymous") {
+      console.log("[scan-result] Device ownership check: restricted", deviceId, "!=", scan.device_id);
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "forbidden",
+        message: "You do not have access to this scan result",
+        endpoint: ENDPOINT,
+      }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: evidenceRows } = await supabase
       .from("scan_evidence")
       .select("id, provider, card_title, card_status, card_payload, created_at")

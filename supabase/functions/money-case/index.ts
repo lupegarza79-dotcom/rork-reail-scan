@@ -15,6 +15,8 @@ const corsHeaders = {
 
 const ENDPOINT = "money-case";
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
+const MONEY_CASE_RATE_LIMIT = 10;
+const RATE_LIMIT_WINDOW_MINUTES = 60;
 
 interface MoneyCaseInput {
   share_token?: string;
@@ -325,6 +327,15 @@ serve(async (req: Request) => {
         }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      if (moneyCase.device_id && moneyCase.device_id !== deviceId && deviceId === "anonymous") {
+        return new Response(JSON.stringify({
+          ok: false,
+          error_code: "forbidden",
+          message: "You do not have access to this case",
+          endpoint: ENDPOINT,
+        }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const { data: events } = await supabase
         .from("case_events")
         .select("*")
@@ -363,6 +374,25 @@ serve(async (req: Request) => {
     }
 
     if (req.method === "POST") {
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000);
+      const { count } = await supabase
+        .from("money_cases")
+        .select("*", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .gte("created_at", windowStart.toISOString());
+
+      if ((count ?? 0) >= MONEY_CASE_RATE_LIMIT) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error_code: "rate_limit_exceeded",
+          message: "Too many cases created. Please try again later.",
+          endpoint: ENDPOINT,
+          retry_after_seconds: RATE_LIMIT_WINDOW_MINUTES * 60,
+          rate_limit: { remaining: 0, limit: MONEY_CASE_RATE_LIMIT, window_seconds: RATE_LIMIT_WINDOW_MINUTES * 60 },
+        }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(RATE_LIMIT_WINDOW_MINUTES * 60) } });
+      }
+
       const body: MoneyCaseInput = await req.json();
 
       if (!body.issue_type) {
