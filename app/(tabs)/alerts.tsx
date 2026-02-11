@@ -70,7 +70,9 @@ export default function AlertsScreen() {
         if (!active) return;
 
         if (remote?.items?.length) {
-          const mapped: ReailAlert[] = remote.items.map((x: Record<string, unknown>) => ({
+          const mapped: ReailAlert[] = remote.items.map((item: unknown) => {
+          const x = item as Record<string, unknown>;
+          return ({
             id: x.id as string,
             createdAt: typeof x.created_at === 'number' 
               ? new Date(x.created_at).toISOString() 
@@ -85,7 +87,8 @@ export default function AlertsScreen() {
             readAt: x.read_at ? (typeof x.read_at === 'number' 
               ? new Date(x.read_at).toISOString() 
               : (x.read_at as string)) : undefined,
-          }));
+          });
+        });
           setAlerts(mapped);
           return;
         }

@@ -1,8 +1,8 @@
 export type BadgeType = 'VERIFIED' | 'UNVERIFIED' | 'HIGH_RISK';
 
-export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'pending';
+export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'pending' | 'unknown';
 
-export type EvidenceProvider = 'link_intel' | 'domain_intel' | 'social_context' | 'pattern_match';
+export type EvidenceProvider = 'link_intel' | 'domain_intel' | 'social_context' | 'pattern_match' | 'ssl_intel' | 'google_safe_browsing' | 'virustotal' | 'reputation_reports' | 'content_intel';
 
 export interface EvidencePayload {
   [key: string]: unknown;
@@ -128,6 +128,7 @@ export interface ScanResult {
   evidence?: EvidenceCard[];
   summary?: string;
   scoreBreakdown?: ScoreBreakdown;
+  isMock?: boolean;
 }
 
 export interface ScoreBreakdown {
@@ -182,6 +183,36 @@ export interface ContentScanResponse {
 
 export type ReportType = 'scam' | 'phishing' | 'spam' | 'misleading' | 'safe' | 'other';
 
+export type TrustTier = 'trusted' | 'neutral' | 'suspicious' | 'malicious' | 'unknown';
+
+export interface DomainTrustProfile {
+  domain: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  totalScans: number;
+  verifiedCount: number;
+  unverifiedCount: number;
+  highRiskCount: number;
+  avgScore: number;
+  minScore: number;
+  maxScore: number;
+  totalReports: number;
+  scamReports: number;
+  safeReports: number;
+  trustTier: TrustTier;
+  tierLocked: boolean;
+}
+
+export interface ContentIntelPayload extends EvidencePayload {
+  fetchSuccess?: boolean;
+  contentLength?: number;
+  detectedLanguage?: string;
+  urgencyMatches?: string[];
+  impersonationMatches?: string[];
+  scamPhraseMatches?: string[];
+  totalFlags?: number;
+}
+
 export interface ReportScanRequest {
   scan_id?: string;
   url: string;
@@ -193,4 +224,119 @@ export interface ReportScanResponse {
   report_id: string;
   message: string;
   total_reports: number;
+}
+
+// Money Case Types
+export type MoneyCaseIssue = 
+  | 'unauthorized_charge'
+  | 'product_not_received'
+  | 'product_not_as_described'
+  | 'duplicate_charge'
+  | 'subscription_cancellation'
+  | 'refund_not_processed'
+  | 'scam_fraud'
+  | 'other';
+
+export type MoneyCaseStatus = 'draft' | 'submitted' | 'in_progress' | 'resolved' | 'escalated' | 'closed';
+
+export type PaymentMethodType = 
+  | 'credit_card'
+  | 'debit_card'
+  | 'paypal'
+  | 'venmo'
+  | 'zelle'
+  | 'cash_app'
+  | 'apple_pay'
+  | 'google_pay'
+  | 'bank_transfer'
+  | 'crypto'
+  | 'gift_card'
+  | 'other';
+
+export type DesiredOutcome = 
+  | 'full_refund'
+  | 'partial_refund'
+  | 'replacement'
+  | 'store_credit'
+  | 'chargeback'
+  | 'other';
+
+export interface MoneyCaseInput {
+  share_token?: string;
+  issue_type: MoneyCaseIssue;
+  amount_cents?: number;
+  currency?: string;
+  transaction_date?: string;
+  payment_method?: PaymentMethodType;
+  merchant_name?: string;
+  merchant_url?: string;
+  description?: string;
+  desired_outcome?: DesiredOutcome;
+  locale?: 'en' | 'es';
+}
+
+export interface RailPack {
+  locale: string;
+  generated_at: string;
+  refund_request_template: string;
+  follow_up_template: string;
+  escalation_checklist: string[];
+  evidence_checklist: string[];
+  disclaimer: string;
+}
+
+export interface MoneyCaseResponse {
+  ok: boolean;
+  case_id: string;
+  status: MoneyCaseStatus;
+  rail_pack: RailPack;
+  created_at: string;
+}
+
+export interface CaseEvent {
+  id: string;
+  case_id: string;
+  event_type: string;
+  title: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CaseArtifact {
+  id: string;
+  case_id: string;
+  artifact_type: string;
+  filename?: string;
+  mime_type?: string;
+  file_url?: string;
+  file_size_bytes?: number;
+  description?: string;
+  uploaded_at: string;
+}
+
+export interface MoneyCaseDetail {
+  id: string;
+  share_token?: string;
+  issue_type: MoneyCaseIssue;
+  status: MoneyCaseStatus;
+  amount_cents?: number;
+  currency?: string;
+  transaction_date?: string;
+  payment_method?: PaymentMethodType;
+  merchant_name?: string;
+  merchant_url?: string;
+  description?: string;
+  desired_outcome?: DesiredOutcome;
+  locale?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MoneyCaseFullResponse {
+  ok: boolean;
+  case: MoneyCaseDetail;
+  rail_pack: RailPack;
+  events: CaseEvent[];
+  artifacts: CaseArtifact[];
 }

@@ -35,12 +35,7 @@ function RootLayoutNav() {
           animation: 'slide_from_bottom',
         }} 
       />
-      <Stack.Screen 
-        name="settings" 
-        options={{ 
-          animation: 'slide_from_right',
-        }} 
-      />
+
       <Stack.Screen 
         name="share-tutorial" 
         options={{ 
@@ -55,9 +50,40 @@ function RootLayoutNav() {
         }} 
       />
       <Stack.Screen 
+        name="s/[token]" 
+        options={{ 
+          animation: 'fade',
+          headerShown: false,
+        }} 
+      />
+      <Stack.Screen 
+        name="tools" 
+        options={{ 
+          animation: 'slide_from_right',
+        }} 
+      />
+      <Stack.Screen 
         name="watchlist" 
         options={{ 
           animation: 'slide_from_right',
+        }} 
+      />
+      <Stack.Screen 
+        name="appeal" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
+      <Stack.Screen 
+        name="claim" 
+        options={{ 
+          animation: 'slide_from_bottom',
+        }} 
+      />
+      <Stack.Screen 
+        name="money-case" 
+        options={{ 
+          animation: 'slide_from_bottom',
         }} 
       />
       <Stack.Screen name="+not-found" />

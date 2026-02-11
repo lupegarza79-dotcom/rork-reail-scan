@@ -1,14 +1,30 @@
 -- Migration: scan_results + scan_evidence tables
 -- Aligned with app types: BadgeType, EvidenceStatus, EvidenceProvider
+-- IDEMPOTENT: safe to run against existing DB
 
--- Enums
-CREATE TYPE badge_type AS ENUM ('VERIFIED', 'UNVERIFIED', 'HIGH_RISK');
-CREATE TYPE evidence_status AS ENUM ('pass', 'warn', 'fail', 'pending');
-CREATE TYPE evidence_provider AS ENUM ('link_intel', 'domain_intel', 'social_context', 'pattern_match');
-CREATE TYPE platform_type AS ENUM ('tiktok', 'instagram', 'facebook', 'youtube', 'twitter', 'linkedin', 'reddit', 'news', 'shop', 'crypto', 'other');
+-- Enums (guarded with DO blocks)
+DO $$ BEGIN
+  CREATE TYPE badge_type AS ENUM ('VERIFIED', 'UNVERIFIED', 'HIGH_RISK');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE evidence_status AS ENUM ('pass', 'warn', 'fail', 'pending');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE evidence_provider AS ENUM ('link_intel', 'domain_intel', 'social_context', 'pattern_match');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE platform_type AS ENUM ('tiktok', 'instagram', 'facebook', 'youtube', 'twitter', 'linkedin', 'reddit', 'news', 'shop', 'crypto', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- scan_results table
-CREATE TABLE scan_results (
+CREATE TABLE IF NOT EXISTS scan_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   device_id TEXT NOT NULL,
   url TEXT NOT NULL,
@@ -29,7 +45,7 @@ CREATE TABLE scan_results (
 );
 
 -- scan_evidence table
-CREATE TABLE scan_evidence (
+CREATE TABLE IF NOT EXISTS scan_evidence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scan_id UUID NOT NULL REFERENCES scan_results(id) ON DELETE CASCADE,
   provider evidence_provider NOT NULL,
@@ -44,16 +60,16 @@ CREATE TABLE scan_evidence (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_scan_results_device_id ON scan_results(device_id);
-CREATE INDEX idx_scan_results_domain ON scan_results(domain);
-CREATE INDEX idx_scan_results_created_at ON scan_results(created_at DESC);
-CREATE INDEX idx_scan_results_badge ON scan_results(badge);
-CREATE INDEX idx_scan_evidence_scan_id ON scan_evidence(scan_id);
-CREATE INDEX idx_scan_evidence_provider ON scan_evidence(provider);
-CREATE INDEX idx_scan_evidence_status ON scan_evidence(status);
+CREATE INDEX IF NOT EXISTS idx_scan_results_device_id ON scan_results(device_id);
+CREATE INDEX IF NOT EXISTS idx_scan_results_domain ON scan_results(domain);
+CREATE INDEX IF NOT EXISTS idx_scan_results_created_at ON scan_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_results_badge ON scan_results(badge);
+CREATE INDEX IF NOT EXISTS idx_scan_evidence_scan_id ON scan_evidence(scan_id);
+CREATE INDEX IF NOT EXISTS idx_scan_evidence_provider ON scan_evidence(provider);
+CREATE INDEX IF NOT EXISTS idx_scan_evidence_status ON scan_evidence(status);
 
 -- Full-text search on URL/domain
-CREATE INDEX idx_scan_results_url_gin ON scan_results USING gin(to_tsvector('english', url || ' ' || domain));
+CREATE INDEX IF NOT EXISTS idx_scan_results_url_gin ON scan_results USING gin(to_tsvector('english', url || ' ' || domain));
 
 -- Updated_at trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -64,48 +80,69 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_scan_results_updated_at
-  BEFORE UPDATE ON scan_results
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_scan_results_updated_at
+    BEFORE UPDATE ON scan_results
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- RLS Policies
 ALTER TABLE scan_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scan_evidence ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can read/write their own scans (by device_id header)
-CREATE POLICY "Users can view their own scans"
-  ON scan_results FOR SELECT
-  USING (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+DO $$ BEGIN
+  CREATE POLICY "Users can view their own scans"
+    ON scan_results FOR SELECT
+    USING (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Users can insert their own scans"
-  ON scan_results FOR INSERT
-  WITH CHECK (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+DO $$ BEGIN
+  CREATE POLICY "Users can insert their own scans"
+    ON scan_results FOR INSERT
+    WITH CHECK (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Users can update their own scans"
-  ON scan_results FOR UPDATE
-  USING (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+DO $$ BEGIN
+  CREATE POLICY "Users can update their own scans"
+    ON scan_results FOR UPDATE
+    USING (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Evidence inherits from scan ownership
-CREATE POLICY "Users can view evidence for their scans"
-  ON scan_evidence FOR SELECT
-  USING (
-    scan_id IN (
-      SELECT id FROM scan_results 
-      WHERE device_id = current_setting('request.headers', true)::json->>'x-device-id'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users can view evidence for their scans"
+    ON scan_evidence FOR SELECT
+    USING (
+      scan_id IN (
+        SELECT id FROM scan_results 
+        WHERE device_id = current_setting('request.headers', true)::json->>'x-device-id'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Service role can manage all"
-  ON scan_results FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  CREATE POLICY "Service role can manage all"
+    ON scan_results FOR ALL
+    USING (auth.role() = 'service_role');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Service role can manage all evidence"
-  ON scan_evidence FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  CREATE POLICY "Service role can manage all evidence"
+    ON scan_evidence FOR ALL
+    USING (auth.role() = 'service_role');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Useful view for scan + evidence join
-CREATE VIEW scan_with_evidence AS
+CREATE OR REPLACE VIEW scan_with_evidence AS
 SELECT 
   sr.*,
   COALESCE(

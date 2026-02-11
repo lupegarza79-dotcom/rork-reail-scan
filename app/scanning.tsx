@@ -5,17 +5,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Shield, Wifi, WifiOff } from "lucide-react-native";
 import { scanService } from "../utils/scanService";
+import { contentScanText } from "../utils/api";
 import { useNetwork } from "../hooks/useNetwork";
 import Colors from "@/constants/colors";
+import { trackEvent } from "@/utils/analytics";
 
 type Params = {
   url?: string;
   mediaUri?: string;
+  contentText?: string;
 };
 
 export default function ScanningScreen() {
   const router = useRouter();
-  const { url, mediaUri } = useLocalSearchParams<Params>();
+  const { url, mediaUri, contentText } = useLocalSearchParams<Params>();
 
   const { isConnected: isOnline } = useNetwork();
   const [statusText, setStatusText] = useState<string>("Analyzing");
@@ -67,11 +70,11 @@ export default function ScanningScreen() {
 
   const steps = useMemo(
     () => [
-      "Checking media integrity…",
-      "Checking claims…",
       "Checking source signals…",
+      "Matching scam patterns…",
       "Checking link safety…",
-      "Generating explainable reasons (A–F)…",
+      "Analyzing media integrity…",
+      "Generating explainable reasons…",
     ],
     []
   );
@@ -80,11 +83,13 @@ export default function ScanningScreen() {
   const scanInput = useMemo(() => {
     const cleanUrl = typeof url === "string" ? url.trim() : "";
     const cleanMedia = typeof mediaUri === "string" ? mediaUri.trim() : "";
+    const cleanText = typeof contentText === "string" ? contentText.trim() : "";
     return {
       url: cleanUrl.length ? cleanUrl : undefined,
       mediaUri: cleanMedia.length ? cleanMedia : undefined,
+      contentText: cleanText.length ? cleanText : undefined,
     };
-  }, [url, mediaUri]);
+  }, [url, mediaUri, contentText]);
 
   useEffect(() => {
     if (didRunRef.current) return;
@@ -93,8 +98,11 @@ export default function ScanningScreen() {
     const run = async () => {
       try {
         setError(null);
+        trackEvent('scan_started', {
+          type: scanInput.url ? 'url' : scanInput.contentText ? 'text' : 'media',
+          online: isOnline,
+        });
 
-        // show online/offline as UI only (not "AI connected")
         if (!isOnline) {
           setStatusText("Offline mode (fallback)");
         }
@@ -108,13 +116,33 @@ export default function ScanningScreen() {
 
         let result: any;
 
-        if (scanInput.url) {
+        if (scanInput.contentText) {
+          console.log("[Scanning] Text content scan");
+          const textResult = await contentScanText(scanInput.contentText);
+          if (textResult) {
+            result = {
+              id: textResult.scanId,
+              scanId: textResult.scanId,
+              badge: textResult.badge,
+              score: textResult.score,
+              summary: textResult.summary,
+              evidence: textResult.evidence,
+              scoreBreakdown: textResult.scoreBreakdown,
+              domain: "Text Analysis",
+              url: "text://analysis",
+            };
+          } else {
+            clearInterval(interval);
+            setError("Could not analyze text. Try again.");
+            return;
+          }
+        } else if (scanInput.url) {
           result = await scanService.scanUrl({ url: scanInput.url });
         } else if (scanInput.mediaUri) {
           result = await scanService.scanMedia({ mediaUri: scanInput.mediaUri });
         } else {
           clearInterval(interval);
-          setError("No URL or screenshot provided.");
+          setError("No URL, text, or screenshot provided.");
           return;
         }
 

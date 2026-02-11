@@ -9,7 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 const ENDPOINT = "quick-scan";
@@ -133,11 +133,19 @@ serve(async (req: Request) => {
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+<<<<<<< HEAD
   if (req.method !== "GET") {
     return new Response(JSON.stringify({
       ok: false,
       error_code: "method_not_allowed",
       message: "Method not allowed",
+=======
+  if (req.method !== "GET" && req.method !== "POST") {
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "method_not_allowed",
+      message: "Method not allowed. Use GET or POST.",
+>>>>>>> origin/main
       endpoint: ENDPOINT,
     }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -146,12 +154,39 @@ serve(async (req: Request) => {
 
   const startTime = Date.now();
   try {
-    const targetUrl = reqUrl.searchParams.get("url");
+    let targetUrl: string | null = null;
+    let inputType = "url";
+    let shareRequested = false;
+
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        targetUrl = body.input || body.url || null;
+        inputType = body.input_type || "url";
+        shareRequested = !!body.share;
+      } catch {
+        return new Response(JSON.stringify({
+          ok: false,
+          error_code: "invalid_body",
+          message: "Invalid JSON body",
+          endpoint: ENDPOINT,
+        }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      targetUrl = reqUrl.searchParams.get("url");
+    }
+
     if (!targetUrl) {
       return new Response(JSON.stringify({
         ok: false,
         error_code: "invalid_input",
+<<<<<<< HEAD
         message: "url query parameter is required",
+=======
+        message: req.method === "POST" ? "'input' field is required in body" : "url query parameter is required",
+>>>>>>> origin/main
         endpoint: ENDPOINT,
       }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

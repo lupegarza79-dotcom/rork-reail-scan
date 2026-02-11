@@ -10,7 +10,6 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
   BadgeCheck, 
@@ -26,15 +25,18 @@ import {
   FileCheck,
   Lock,
   Zap,
+  AlertTriangle,
+  Flag,
+  UserCheck,
 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
-import { useApp } from '@/contexts/AppContext';
 import Logo from '@/components/Logo';
 
 const WAITLIST_KEY = 'reail_waitlist_emails';
 
-export default function VerifyScreen() {
-  const { t } = useApp();
+export default function VerifyPlusScreen() {
+  const router = useRouter();
   const [businessModalOpen, setBusinessModalOpen] = useState(false);
   const [creatorModalOpen, setCreatorModalOpen] = useState(false);
   const [whatIsModalOpen, setWhatIsModalOpen] = useState(false);
@@ -86,117 +88,164 @@ export default function VerifyScreen() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <View style={styles.headerRow}>
-              <BadgeCheck size={22} color={Colors.primary} strokeWidth={2} />
-              <Text style={styles.headerTitle}>{t.verify}</Text>
+      <View style={styles.topBar}>
+        <View style={styles.titleRow}>
+          <BadgeCheck size={20} color={Colors.primary} strokeWidth={2} />
+          <Text style={styles.title}>Verify+</Text>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          <View style={styles.logoSection}>
+            <View style={styles.iconBadge}>
+              <Shield size={48} color={Colors.accent} strokeWidth={1.5} />
             </View>
+            <Logo size="large" showSubtext />
           </View>
 
-          <View style={styles.content}>
-            <View style={styles.logoSection}>
-              <View style={styles.iconBadge}>
-                <Shield size={48} color={Colors.accent} strokeWidth={1.5} />
-              </View>
-              <Logo size="large" showSubtext />
-            </View>
+          <Text style={styles.heroTitle}>Verification is earned, not claimed</Text>
+          <Text style={styles.subtitle}>
+            Build trust through evidence, not just badges
+          </Text>
 
-            <Text style={styles.title}>Verification is earned, not claimed</Text>
-            <Text style={styles.subtitle}>
-              Build trust through evidence, not just badges
-            </Text>
+          <Pressable 
+            onPress={() => setWhatIsModalOpen(true)}
+            style={({ pressed }) => [styles.whatIsBtn, pressed && styles.whatIsBtnPressed]}
+          >
+            <Info size={16} color={Colors.accent} strokeWidth={2} />
+            <Text style={styles.whatIsText}>What does verification mean?</Text>
+          </Pressable>
 
+          <View style={styles.cardsContainer}>
             <Pressable 
-              onPress={() => setWhatIsModalOpen(true)}
-              style={({ pressed }) => [styles.whatIsBtn, pressed && styles.whatIsBtnPressed]}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
+              onPress={() => setBusinessModalOpen(true)}
             >
-              <Info size={16} color={Colors.accent} strokeWidth={2} />
-              <Text style={styles.whatIsText}>What does verification mean?</Text>
+              <View style={[styles.cardIcon, { backgroundColor: `${Colors.verified}15` }]}>
+                <Building2 size={24} color={Colors.verified} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Verified Business</Text>
+                <Text style={styles.cardDescription}>Prove legitimacy through documentation</Text>
+              </View>
+              <ArrowRight size={20} color={Colors.textTertiary} />
             </Pressable>
 
-            <View style={styles.cardsContainer}>
-              <Pressable 
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
-                onPress={() => setBusinessModalOpen(true)}
-              >
-                <View style={[styles.cardIcon, { backgroundColor: `${Colors.verified}15` }]}>
-                  <Building2 size={24} color={Colors.verified} />
-                </View>
-                <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>Verified Business</Text>
-                  <Text style={styles.cardDescription}>Prove legitimacy through documentation</Text>
-                </View>
-                <ArrowRight size={20} color={Colors.textTertiary} />
-              </Pressable>
-
-              <Pressable 
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
-                onPress={() => setCreatorModalOpen(true)}
-              >
-                <View style={[styles.cardIcon, { backgroundColor: `${Colors.accent}15` }]}>
-                  <User size={24} color={Colors.accent} />
-                </View>
-                <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>Verified Creator</Text>
-                  <Text style={styles.cardDescription}>Establish authenticity for your audience</Text>
-                </View>
-                <ArrowRight size={20} color={Colors.textTertiary} />
-              </Pressable>
-            </View>
-
-            <View style={styles.evidenceBadge}>
-              <FileCheck size={14} color={Colors.accent} strokeWidth={2} />
-              <Text style={styles.evidenceBadgeText}>Verification requires evidence</Text>
-            </View>
-
-            <View style={styles.principlesSection}>
-              <Text style={styles.principlesTitle}>Our Principles</Text>
-              
-              <View style={styles.principleRow}>
-                <View style={styles.principleIcon}>
-                  <Lock size={16} color={Colors.verified} strokeWidth={2} />
-                </View>
-                <View style={styles.principleContent}>
-                  <Text style={styles.principleLabel}>Evidence-Based</Text>
-                  <Text style={styles.principleDesc}>
-                    Verification requires documentation, not just claims
-                  </Text>
-                </View>
+            <Pressable 
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} 
+              onPress={() => setCreatorModalOpen(true)}
+            >
+              <View style={[styles.cardIcon, { backgroundColor: `${Colors.accent}15` }]}>
+                <User size={24} color={Colors.accent} />
               </View>
-
-              <View style={styles.principleRow}>
-                <View style={styles.principleIcon}>
-                  <Shield size={16} color={Colors.verified} strokeWidth={2} />
-                </View>
-                <View style={styles.principleContent}>
-                  <Text style={styles.principleLabel}>Trust, Not Endorsement</Text>
-                  <Text style={styles.principleDesc}>
-                    Verified ≠ we endorse. It confirms identity only.
-                  </Text>
-                </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Verified Creator</Text>
+                <Text style={styles.cardDescription}>Establish authenticity for your audience</Text>
               </View>
-
-              <View style={styles.principleRow}>
-                <View style={styles.principleIcon}>
-                  <Zap size={16} color={Colors.verified} strokeWidth={2} />
-                </View>
-                <View style={styles.principleContent}>
-                  <Text style={styles.principleLabel}>Continuous Monitoring</Text>
-                  <Text style={styles.principleDesc}>
-                    Verification can be revoked if evidence changes
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <Text style={styles.footerText}>
-              Get verified to build trust with your audience. Verified accounts receive a special badge in scan results—but verification is earned through evidence, not purchased.
-            </Text>
+              <ArrowRight size={20} color={Colors.textTertiary} />
+            </Pressable>
           </View>
-        </ScrollView>
-      </SafeAreaView>
+
+          <View style={styles.evidenceBadge}>
+            <FileCheck size={14} color={Colors.accent} strokeWidth={2} />
+            <Text style={styles.evidenceBadgeText}>Verification requires evidence</Text>
+          </View>
+
+          <View style={styles.principlesSection}>
+            <Text style={styles.principlesTitle}>Our Principles</Text>
+            
+            <View style={styles.principleRow}>
+              <View style={styles.principleIcon}>
+                <Lock size={16} color={Colors.verified} strokeWidth={2} />
+              </View>
+              <View style={styles.principleContent}>
+                <Text style={styles.principleLabel}>Evidence-Based</Text>
+                <Text style={styles.principleDesc}>
+                  Verification requires documentation, not just claims
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.principleRow}>
+              <View style={styles.principleIcon}>
+                <Shield size={16} color={Colors.verified} strokeWidth={2} />
+              </View>
+              <View style={styles.principleContent}>
+                <Text style={styles.principleLabel}>Trust, Not Endorsement</Text>
+                <Text style={styles.principleDesc}>
+                  Verified ≠ we endorse. It confirms identity only.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.principleRow}>
+              <View style={styles.principleIcon}>
+                <Zap size={16} color={Colors.verified} strokeWidth={2} />
+              </View>
+              <View style={styles.principleContent}>
+                <Text style={styles.principleLabel}>Continuous Monitoring</Text>
+                <Text style={styles.principleDesc}>
+                  Verification can be revoked if evidence changes
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.fairnessSection}>
+            <Text style={styles.fairnessTitle}>Fairness & Accuracy</Text>
+            <Text style={styles.fairnessSubtitle}>
+              We believe in accountability. If something is wrong, tell us.
+            </Text>
+
+            <Pressable
+              onPress={() => router.push('/claim')}
+              style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+            >
+              <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.verified}15` }]}>
+                <UserCheck size={18} color={Colors.verified} strokeWidth={2} />
+              </View>
+              <View style={styles.fairnessContent}>
+                <Text style={styles.fairnessLabel}>Claim Profile</Text>
+                <Text style={styles.fairnessDesc}>Prove you own this domain or brand</Text>
+              </View>
+              <ArrowRight size={16} color={Colors.textTertiary} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push('/appeal')}
+              style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+            >
+              <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.unverified}15` }]}>
+                <AlertTriangle size={18} color={Colors.unverified} strokeWidth={2} />
+              </View>
+              <View style={styles.fairnessContent}>
+                <Text style={styles.fairnessLabel}>Submit Appeal</Text>
+                <Text style={styles.fairnessDesc}>Challenge a scan result with evidence</Text>
+              </View>
+              <ArrowRight size={16} color={Colors.textTertiary} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push('/appeal')}
+              style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
+            >
+              <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.highRisk}15` }]}>
+                <Flag size={18} color={Colors.highRisk} strokeWidth={2} />
+              </View>
+              <View style={styles.fairnessContent}>
+                <Text style={styles.fairnessLabel}>Report Mistake</Text>
+                <Text style={styles.fairnessDesc}>Flag an incorrect or unfair result</Text>
+              </View>
+              <ArrowRight size={16} color={Colors.textTertiary} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.footerText}>
+            Get verified to build trust with your audience. Verified accounts receive a special badge in scan results—but verification is earned through evidence, not purchased.
+          </Text>
+        </View>
+      </ScrollView>
 
       <Modal
         visible={businessModalOpen}
@@ -406,21 +455,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  topBar: {
+    height: 56,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  headerRow: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  headerTitle: {
+  title: {
     fontSize: 18,
     fontWeight: '800' as const,
     color: Colors.text,
@@ -443,7 +492,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${Colors.accent}30`,
   },
-  title: {
+  heroTitle: {
     fontSize: 22,
     fontWeight: '700' as const,
     color: Colors.text,
@@ -574,6 +623,57 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 18,
   },
+  fairnessSection: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  fairnessTitle: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginBottom: 4,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  fairnessSubtitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 14,
+  },
+  fairnessCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    marginBottom: 10,
+  },
+  fairnessCardPressed: {
+    backgroundColor: Colors.backgroundTertiary,
+  },
+  fairnessIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  fairnessContent: {
+    flex: 1,
+  },
+  fairnessLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  fairnessDesc: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
   footerText: {
     fontSize: 13,
     color: Colors.textTertiary,
@@ -667,7 +767,7 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     fontSize: 12,
     fontWeight: '600' as const,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: 0.5,
     marginBottom: 8,
   },

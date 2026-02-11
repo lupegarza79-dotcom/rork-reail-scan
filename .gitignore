@@ -43,5 +43,5 @@ yarn-error.*
 .env
 rork-eslint.config.js
 core
-# Supabase local state
-supabase/.temp/
+node_modules
+.expo

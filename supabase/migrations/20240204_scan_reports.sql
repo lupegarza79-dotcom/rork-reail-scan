@@ -1,9 +1,13 @@
 -- Migration: scan_reports table
 -- User-submitted reports that feed into pattern_match weighting
+-- IDEMPOTENT: safe to run against existing DB
 
-CREATE TYPE report_type AS ENUM ('scam', 'phishing', 'spam', 'misleading', 'safe', 'other');
+DO $$ BEGIN
+  CREATE TYPE report_type AS ENUM ('scam', 'phishing', 'spam', 'misleading', 'safe', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE scan_reports (
+CREATE TABLE IF NOT EXISTS scan_reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   device_id TEXT NOT NULL,
   scan_id UUID REFERENCES scan_results(id) ON DELETE SET NULL,
@@ -15,35 +19,41 @@ CREATE TABLE scan_reports (
 );
 
 -- Indexes for efficient querying in pattern_match provider
-CREATE INDEX idx_scan_reports_url ON scan_reports(url);
-CREATE INDEX idx_scan_reports_domain ON scan_reports(domain);
-CREATE INDEX idx_scan_reports_created_at ON scan_reports(created_at DESC);
-CREATE INDEX idx_scan_reports_device_id ON scan_reports(device_id);
-CREATE INDEX idx_scan_reports_type ON scan_reports(report_type);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_url ON scan_reports(url);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_domain ON scan_reports(domain);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_created_at ON scan_reports(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_device_id ON scan_reports(device_id);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_type ON scan_reports(report_type);
 
 -- Composite index for the pattern_match OR query
-CREATE INDEX idx_scan_reports_url_domain ON scan_reports(url, domain);
+CREATE INDEX IF NOT EXISTS idx_scan_reports_url_domain ON scan_reports(url, domain);
 
 -- RLS Policies
 ALTER TABLE scan_reports ENABLE ROW LEVEL SECURITY;
 
--- Users can view reports (public for transparency)
-CREATE POLICY "Anyone can view reports"
-  ON scan_reports FOR SELECT
-  USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can view reports"
+    ON scan_reports FOR SELECT
+    USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Users can insert their own reports
-CREATE POLICY "Users can submit reports"
-  ON scan_reports FOR INSERT
-  WITH CHECK (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+DO $$ BEGIN
+  CREATE POLICY "Users can submit reports"
+    ON scan_reports FOR INSERT
+    WITH CHECK (device_id = current_setting('request.headers', true)::json->>'x-device-id');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Service role can manage all
-CREATE POLICY "Service role can manage all reports"
-  ON scan_reports FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  CREATE POLICY "Service role can manage all reports"
+    ON scan_reports FOR ALL
+    USING (auth.role() = 'service_role');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Aggregated view for report counts per URL/domain
-CREATE VIEW report_aggregates AS
+CREATE OR REPLACE VIEW report_aggregates AS
 SELECT 
   domain,
   url,

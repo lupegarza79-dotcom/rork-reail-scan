@@ -1,0 +1,74 @@
+.reail-badge {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 2147483647;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #374151;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  max-width: 280px;
+  user-select: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.reail-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.reail-badge--loading { background: #1E1E2A; border-color: #2E2E3A; }
+.reail-badge--verified { background: rgba(16, 185, 129, 0.9); border-color: #10B981; }
+.reail-badge--high_risk { background: rgba(239, 68, 68, 0.9); border-color: #EF4444; }
+.reail-badge--unverified { background: rgba(245, 158, 11, 0.9); border-color: #F59E0B; }
+.reail-badge--unknown { background: rgba(107, 114, 128, 0.85); border-color: #6b7280; }
+
+.reail-badge__icon { font-size: 16px; }
+.reail-badge__label { white-space: nowrap; }
+
+.reail-badge__flags {
+  display: none;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.9;
+}
+.reail-badge--expanded .reail-badge__flags {
+  display: block;
+}
+.reail-badge__flags li {
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.reail-badge__flags li:first-child { border-top: none; }
+
+.reail-badge__report-link {
+  display: none;
+  width: 100%;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  opacity: 0.9;
+}
+.reail-badge__report-link:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+.reail-badge--expanded .reail-badge__report-link {
+  display: block;
+}

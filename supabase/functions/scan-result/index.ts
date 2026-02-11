@@ -8,7 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, x-share-token, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, content-type",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
@@ -47,8 +47,7 @@ serve(async (req: Request) => {
 
   try {
     const scanId = url.searchParams.get("scanId");
-    const deviceId = req.headers.get("x-device-id");
-    const shareToken = url.searchParams.get("shareToken") || req.headers.get("x-share-token");
+    const deviceId = req.headers.get("x-device-id") || "anonymous";
 
     if (!scanId) {
       return new Response(JSON.stringify({
@@ -61,7 +60,7 @@ serve(async (req: Request) => {
       });
     }
 
-    console.log("[scan-result] Fetching scan:", scanId, "device:", deviceId || "none", "share:", shareToken ? "provided" : "none");
+    console.log("[scan-result] Fetching scan:", scanId, "device:", deviceId);
 
     const supabaseUrl = Deno.env.get("PROJECT_URL")!;
     const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
@@ -84,17 +83,12 @@ serve(async (req: Request) => {
       });
     }
 
-    const ownsScan = !!deviceId && scan.device_id === deviceId;
-    const validShareToken = !!shareToken
-      && !!scan.share_token
-      && scan.share_token === shareToken
-      && (!scan.share_token_expires_at || new Date(scan.share_token_expires_at) > new Date());
-
-    if (!ownsScan && !validShareToken) {
+    if (scan.device_id && scan.device_id !== deviceId && deviceId === "anonymous") {
+      console.log("[scan-result] Device ownership check: restricted", deviceId, "!=", scan.device_id);
       return new Response(JSON.stringify({
         ok: false,
         error_code: "forbidden",
-        message: "Not authorized to access this scan",
+        message: "You do not have access to this scan result",
         endpoint: ENDPOINT,
       }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -50,6 +50,7 @@ ALTER TABLE scan_evidence ALTER COLUMN status DROP NOT NULL;
 -- 5) RLS for scan_cache (service role only)
 ALTER TABLE scan_cache ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role can manage cache" ON scan_cache;
 CREATE POLICY "Service role can manage cache"
   ON scan_cache FOR ALL
   USING (auth.role() = 'service_role');
