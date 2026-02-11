@@ -29,6 +29,21 @@ CREATE TABLE IF NOT EXISTS public.wallet_share_links (
   ip VARCHAR(45)
 );
 
+-- ensure expires_at has the desired default even if wallet_share_links pre-existed
+DO $$
+BEGIN
+  IF to_regclass('public.wallet_share_links') IS NOT NULL THEN
+    ALTER TABLE public.wallet_share_links
+      ALTER COLUMN expires_at SET DEFAULT (NOW() + INTERVAL '30 days');
+
+    UPDATE public.wallet_share_links
+      SET expires_at = (NOW() + INTERVAL '30 days')
+      WHERE expires_at IS NULL;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'wallet_share_links expires_at default fix skipped: %', SQLERRM;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_wallet_share_token ON public.wallet_share_links(token);
 CREATE INDEX IF NOT EXISTS idx_wallet_share_expires ON public.wallet_share_links(expires_at);
 CREATE INDEX IF NOT EXISTS idx_wallet_share_domain ON public.wallet_share_links(domain);
@@ -181,6 +196,27 @@ CREATE TABLE IF NOT EXISTS public.appeals (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- --- COMPAT: if appeals exists from an older schema, ensure required columns exist
+DO $$
+BEGIN
+  IF to_regclass('public.appeals') IS NOT NULL THEN
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS device_id TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS ip TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS contact TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS message TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS status TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS reviewer_notes TEXT;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+    ALTER TABLE public.appeals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+    -- defaults (safe if column exists)
+    ALTER TABLE public.appeals ALTER COLUMN created_at SET DEFAULT NOW();
+    ALTER TABLE public.appeals ALTER COLUMN updated_at SET DEFAULT NOW();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'appeals compat skipped: %', SQLERRM;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_appeals_scan_id ON public.appeals(scan_id);
 CREATE INDEX IF NOT EXISTS idx_appeals_device ON public.appeals(device_id);
 CREATE INDEX IF NOT EXISTS idx_appeals_status ON public.appeals(status);
@@ -212,6 +248,28 @@ CREATE TABLE IF NOT EXISTS public.claims (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- --- COMPAT: if claims exists from an older schema, ensure required columns exist
+DO $$
+BEGIN
+  IF to_regclass('public.claims') IS NOT NULL THEN
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS device_id TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS ip TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS contact TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS proof_method TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS evidence_links TEXT[];
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS message TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS status TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS reviewer_notes TEXT;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+    ALTER TABLE public.claims ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+    ALTER TABLE public.claims ALTER COLUMN created_at SET DEFAULT NOW();
+    ALTER TABLE public.claims ALTER COLUMN updated_at SET DEFAULT NOW();
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'claims compat skipped: %', SQLERRM;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_claims_domain ON public.claims(domain);
 CREATE INDEX IF NOT EXISTS idx_claims_device ON public.claims(device_id);
