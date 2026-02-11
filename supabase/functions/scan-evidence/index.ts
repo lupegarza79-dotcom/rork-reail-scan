@@ -12,6 +12,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+const ENDPOINT = "scan-evidence";
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
 serve(async (req: Request) => {
@@ -23,16 +24,23 @@ serve(async (req: Request) => {
 
   if (req.method === "GET" && url.searchParams.get("health") !== null) {
     return new Response(JSON.stringify({
-      status: "ok",
-      function: "scan-evidence",
-      secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
-      verbose: VERBOSE,
+      ok: true,
+      endpoint: ENDPOINT,
+      details: {
+        secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
+        verbose: VERBOSE,
+      },
       timestamp: new Date().toISOString(),
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   if (req.method !== "GET") {
-    return new Response(JSON.stringify({ message: "Method not allowed", code: "METHOD_NOT_ALLOWED", details: null, hint: null }), {
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "method_not_allowed",
+      message: "Method not allowed",
+      endpoint: ENDPOINT,
+    }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -42,7 +50,12 @@ serve(async (req: Request) => {
     const deviceId = req.headers.get("x-device-id") || "anonymous";
 
     if (!scanId) {
-      return new Response(JSON.stringify({ message: "scanId is required", code: "INVALID_INPUT", details: null, hint: null }), {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "invalid_input",
+        message: "scanId is required",
+        endpoint: ENDPOINT,
+      }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -61,14 +74,14 @@ serve(async (req: Request) => {
 
     if (scanError || !scan) {
       console.log("[scan-evidence] Scan not found:", scanId);
-      return new Response(JSON.stringify({ evidence: [] }), {
+      return new Response(JSON.stringify({ ok: true, evidence: [] }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (scan.device_id !== deviceId) {
       console.log("[scan-evidence] Device mismatch:", deviceId, "!=", scan.device_id);
-      return new Response(JSON.stringify({ evidence: [] }), {
+      return new Response(JSON.stringify({ ok: true, evidence: [] }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -99,17 +112,17 @@ serve(async (req: Request) => {
 
     console.log("[scan-evidence] Found", evidence.length, "evidence items");
 
-    return new Response(JSON.stringify({ evidence }), {
+    return new Response(JSON.stringify({ ok: true, evidence }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("[scan-evidence] Error:", error);
     const errObj = error instanceof Error ? error : new Error(String(error));
     return new Response(JSON.stringify({
+      ok: false,
+      error_code: (error as any)?.code ?? "internal_error",
       message: errObj.message,
-      code: (error as any)?.code ?? "INTERNAL_ERROR",
-      details: (error as any)?.details ?? null,
-      hint: (error as any)?.hint ?? null,
+      endpoint: ENDPOINT,
     }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

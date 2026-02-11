@@ -8,10 +8,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, x-share-token, content-type",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+const ENDPOINT = "scan-result";
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
 serve(async (req: Request) => {
@@ -23,31 +24,44 @@ serve(async (req: Request) => {
 
   if (req.method === "GET" && url.searchParams.get("health") !== null) {
     return new Response(JSON.stringify({
-      status: "ok",
-      function: "scan-result",
-      secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
-      verbose: VERBOSE,
+      ok: true,
+      endpoint: ENDPOINT,
+      details: {
+        secrets: { PROJECT_URL: !!Deno.env.get("PROJECT_URL"), SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY") },
+        verbose: VERBOSE,
+      },
       timestamp: new Date().toISOString(),
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   if (req.method !== "GET") {
-    return new Response(JSON.stringify({ message: "Method not allowed", code: "METHOD_NOT_ALLOWED", details: null, hint: null }), {
+    return new Response(JSON.stringify({
+      ok: false,
+      error_code: "method_not_allowed",
+      message: "Method not allowed",
+      endpoint: ENDPOINT,
+    }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   try {
     const scanId = url.searchParams.get("scanId");
-    const deviceId = req.headers.get("x-device-id") || "anonymous";
+    const deviceId = req.headers.get("x-device-id");
+    const shareToken = url.searchParams.get("shareToken") || req.headers.get("x-share-token");
 
     if (!scanId) {
-      return new Response(JSON.stringify({ message: "scanId is required", code: "INVALID_INPUT", details: null, hint: null }), {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "invalid_input",
+        message: "scanId is required",
+        endpoint: ENDPOINT,
+      }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log("[scan-result] Fetching scan:", scanId, "device:", deviceId);
+    console.log("[scan-result] Fetching scan:", scanId, "device:", deviceId || "none", "share:", shareToken ? "provided" : "none");
 
     const supabaseUrl = Deno.env.get("PROJECT_URL")!;
     const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
@@ -60,8 +74,30 @@ serve(async (req: Request) => {
       .single();
 
     if (scanError || !scan) {
-      return new Response(JSON.stringify({ message: "Scan not found", code: "NOT_FOUND", details: null, hint: null }), {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "not_found",
+        message: "Scan not found",
+        endpoint: ENDPOINT,
+      }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const ownsScan = !!deviceId && scan.device_id === deviceId;
+    const validShareToken = !!shareToken
+      && !!scan.share_token
+      && scan.share_token === shareToken
+      && (!scan.share_token_expires_at || new Date(scan.share_token_expires_at) > new Date());
+
+    if (!ownsScan && !validShareToken) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error_code: "forbidden",
+        message: "Not authorized to access this scan",
+        endpoint: ENDPOINT,
+      }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -85,6 +121,7 @@ serve(async (req: Request) => {
     }));
 
     const result = {
+      ok: true,
       id: scan.id,
       url: scan.url,
       finalUrl: scan.final_url,
@@ -107,10 +144,10 @@ serve(async (req: Request) => {
     console.error("[scan-result] Error:", error);
     const errObj = error instanceof Error ? error : new Error(String(error));
     return new Response(JSON.stringify({
+      ok: false,
+      error_code: (error as any)?.code ?? "internal_error",
       message: errObj.message,
-      code: (error as any)?.code ?? "INTERNAL_ERROR",
-      details: (error as any)?.details ?? null,
-      hint: (error as any)?.hint ?? null,
+      endpoint: ENDPOINT,
     }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

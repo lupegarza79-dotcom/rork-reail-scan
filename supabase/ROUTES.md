@@ -1,266 +1,100 @@
-# Supabase Edge Function Routes
+# Supabase Edge Functions & Go-Live Runbook (Windows-first)
 
-## Base URL Configuration
+## Project
+- **Project ref:** `favpzctusdjnnoyoabrz`
+- **Functions base URL:** `https://favpzctusdjnnoyoabrz.supabase.co/functions/v1`
 
-Client `.env`:
-```
-EXPO_PUBLIC_API_URL=https://<REF>.supabase.co/functions/v1
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...  # Legacy anon public JWT
-```
-
-## Required Headers (ALL requests)
-
-```
+## Required Headers (client endpoints)
+```http
 Authorization: Bearer <LEGACY_ANON_JWT>
 apikey: <LEGACY_ANON_JWT>
 X-Device-Id: <device-uuid>
 Content-Type: application/json
 ```
 
-> **IMPORTANT:** Use the **Legacy anon (public) JWT** (starts with `eyJhbGci...`) for
-> both `Authorization` and `apikey` headers. The newer publishable key
-> (`sb_publishable_...`) is **NOT** a JWT and will be rejected by `verify_jwt`.
-> Find it in Supabase Dashboard → Settings → API → Project API keys → anon / public.
+> Use legacy anon JWT (`eyJ...`), not `sb_publishable_*`.
 
-## Supabase Function Secrets (server-only, set via CLI)
+## Security gates
+- TrustOps/admin/ops endpoints (if present in your deployment): require `TRUSTOPS_ADMIN_TOKEN` and `Authorization: Bearer <token>`.
+- `scan-result` requires either:
+  - ownership (`X-Device-Id` matches scan `device_id`), or
+  - valid explicit `shareToken` (query/header) matching `scan_results.share_token` and not expired.
 
-```bash
-supabase secrets set PROJECT_URL=https://<REF>.supabase.co
-supabase secrets set SERVICE_ROLE_KEY=<service_role_key>
-supabase secrets set WHOIS_API_KEY=<whois_api_key>
-supabase secrets set CACHE_TTL_HOURS=24
-supabase secrets set GOOGLE_SAFE_BROWSING_API_KEY=<key>
-supabase secrets set VIRUSTOTAL_API_KEY=<key>
-supabase secrets set VERBOSE_LOGGING=true
+## Function list (current repo)
+- `content-scan`
+- `scan-evidence`
+- `scan-result`
+- `scan-history`
+- `report-scan`
+- `quick-scan`
+- `cache-cleanup`
+
+## Migrations (chronological, additive, idempotent)
+1. `20240203_scan_tables.sql` — Core scan tables + enums + RLS + `scan_with_evidence` view.
+2. `20240204_scan_reports.sql` — `scan_reports` table + report aggregates view.
+3. `20240205_cache_schema_threat.sql` — cache table + provider/status alignment + cleanup RPC.
+4. `20240206_rate_limits_telemetry.sql` — initial `rate_limits` + telemetry table and summary view.
+5. `20240207_rate_limits_telemetry_update.sql` — telemetry/rate-limit metadata extension.
+6. `20240208_rate_limits_telemetry_phase1.sql` — endpoint/status alignment for telemetry/rate limits.
+7. `20240215_production_hardening.sql` — safe telemetry view rebuild + share-token columns/index.
+8. `20240216_trustops_compat_fix.sql` — fix-forward `appeals.device_id` and `claims.device_id` + indexes.
+
+## Go-live runbook (PowerShell 5/7, copy/paste)
+```powershell
+cd C:\reail
+supabase login
+supabase link --project-ref favpzctusdjnnoyoabrz
+supabase db push --linked --dry-run
+supabase db push --linked
 ```
 
-> **Do NOT use `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`** — Supabase rejects
-> secret names prefixed with `SUPABASE_`.
+### Deploy all functions (PowerShell, no bash)
+```powershell
+$ref = "favpzctusdjnnoyoabrz"
+$funcs = @(
+  "content-scan","scan-evidence","scan-result","scan-history",
+  "report-scan","quick-scan","cache-cleanup"
+)
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `PROJECT_URL` | ✅ | Supabase project URL |
-| `SERVICE_ROLE_KEY` | ✅ | Service role key for DB writes |
-| `WHOIS_API_KEY` | Optional | WhoisXML API key for domain age |
-| `CACHE_TTL_HOURS` | Optional | Cache TTL in hours (default: 24) |
-| `GOOGLE_SAFE_BROWSING_API_KEY` | Optional | Google Safe Browsing v4 key |
-| `VIRUSTOTAL_API_KEY` | Optional | VirusTotal API key |
-| `VERBOSE_LOGGING` | Optional | Set `"true"` for detailed logs |
-
-## Route Mapping
-
-| Edge Function | Method | Description |
-|---------------|--------|-------------|
-| `content-scan` | POST | Full scan: link intel + domain intel + pattern match + threat intel + reputation |
-| `content-scan` | GET `?health` | Health check |
-| `scan-evidence` | GET `?scanId=` | Fetch normalized evidence cards for a scan |
-| `scan-result` | GET `?scanId=` | Fetch full scan result with evidence |
-| `scan-history` | GET `?limit=&offset=` | Fetch scan history by device_id |
-| `report-scan` | POST | Submit user report for a URL |
-| `quick-scan` | GET `?url=` | Fast cached lookup for browser extensions |
-
-## Deployment
-
-```bash
-supabase functions deploy content-scan
-supabase functions deploy scan-evidence
-supabase functions deploy scan-result
-supabase functions deploy scan-history
-supabase functions deploy report-scan
-supabase functions deploy quick-scan
-```
-
-## Health Checks
-
-Every function exposes `GET ?health`:
-```json
-{
-  "status": "ok",
-  "function": "<name>",
-  "secrets": { "PROJECT_URL": true, "SERVICE_ROLE_KEY": true },
-  "timestamp": "2024-02-03T12:00:00.000Z"
+foreach ($fn in $funcs) {
+  Write-Host "Deploying $fn..."
+  supabase functions deploy $fn --project-ref $ref --no-verify-jwt
 }
 ```
 
-content-scan health also reports: `GOOGLE_SAFE_BROWSING_API_KEY`, `VIRUSTOTAL_API_KEY`, `CACHE_TTL_HOURS`.
+### Set secrets
+```powershell
+$token = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
 
-## Standardized Error Format
-
-All functions return errors as:
-```json
-{
-  "message": "Human-readable error",
-  "code": "ERROR_CODE or PostgREST code",
-  "details": "Additional details or null",
-  "hint": "Fix suggestion or null"
-}
+supabase secrets set PROJECT_URL="https://favpzctusdjnnoyoabrz.supabase.co" --project-ref favpzctusdjnnoyoabrz
+supabase secrets set SERVICE_ROLE_KEY="<SERVICE_ROLE_KEY>" --project-ref favpzctusdjnnoyoabrz
+supabase secrets set TRUSTOPS_ADMIN_TOKEN="$token" --project-ref favpzctusdjnnoyoabrz
 ```
 
-## Response Types
+### Health checks (PowerShell, no jq)
+```powershell
+$base = "https://favpzctusdjnnoyoabrz.supabase.co/functions/v1"
+$funcs = @("content-scan","scan-evidence","scan-result","scan-history","report-scan","quick-scan","cache-cleanup")
 
-### POST /content-scan
-Request:
-```json
-{ "url": "https://example.com" }
-```
-Response:
-```json
-{
-  "scan_id": "uuid",
-  "badge": "VERIFIED" | "UNVERIFIED" | "HIGH_RISK",
-  "score": 85,
-  "summary": "string",
-  "cache_hit": false,
-  "evidence": [
-    {
-      "provider": "link_intel" | "domain_intel" | "pattern_match" | "google_safe_browsing" | "virustotal" | "reputation_reports",
-      "status": "pass" | "warn" | "fail" | "unknown",
-      "summary": "string",
-      "weight": 25,
-      "payload": { ... }
-    }
-  ],
-  "score_breakdown": {
-    "baseScore": 70,
-    "adjustments": [...],
-    "finalScore": 85,
-    "badge": "VERIFIED"
+foreach ($fn in $funcs) {
+  try {
+    $r = Invoke-RestMethod "$base/$fn?health=1" -Method GET
+    Write-Host "OK $fn => endpoint=$($r.endpoint) ok=$($r.ok)"
+  } catch {
+    Write-Host "FAIL $fn => $($_.Exception.Message)"
   }
 }
 ```
 
-### GET /scan-evidence?scanId=uuid
-Response (normalized):
-```json
-{
-  "evidence": [
-    {
-      "id": "uuid",
-      "provider": "link_intel",
-      "providerLabel": "Link Intel",
-      "title": "Link Intel",
-      "status": "pass",
-      "summary": "URL passed link analysis",
-      "weight": 25,
-      "scoreImpact": 5,
-      "payload": { ... },
-      "timestamp": 1706961600000
-    }
-  ]
-}
-```
-
-### GET /scan-result?scanId=uuid
-Response:
-```json
-{
-  "id": "uuid",
-  "url": "string",
-  "finalUrl": "string",
-  "domain": "string",
-  "badge": "VERIFIED",
-  "score": 85,
-  "summary": "string",
-  "timestamp": 1706961600000,
-  "evidence": [ /* same normalized format as scan-evidence */ ],
-  "scoreBreakdown": { ... }
-}
-```
-
-### GET /scan-history?limit=100&offset=0
-Response:
-```json
-{
-  "items": [
-    {
-      "scanId": "uuid",
-      "url": "string",
-      "domain": "string",
-      "title": "string",
-      "badge": "VERIFIED",
-      "score": 85,
-      "summary": "string",
-      "createdAt": "2024-02-03T12:00:00Z"
-    }
-  ],
-  "total": 42,
-  "limit": 100,
-  "offset": 0
-}
-```
-
-### POST /report-scan
-Request:
-```json
-{
-  "scan_id": "uuid (optional)",
-  "url": "https://suspicious-site.com",
-  "report_type": "scam" | "phishing" | "spam" | "misleading" | "safe" | "other",
-  "description": "optional description"
-}
-```
-Response:
-```json
-{
-  "report_id": "uuid",
-  "message": "Report submitted successfully",
-  "total_reports": 5
-}
-```
-
-### GET /quick-scan?url=https://example.com
-Response:
-```json
-{
-  "badge": "VERIFIED" | "UNVERIFIED" | "HIGH_RISK" | null,
-  "score": 85 | null,
-  "top_red_flags": ["Suspicious redirect pattern detected"],
-  "scan_id": "uuid" | null,
-  "cache_hit": true,
-  "domain": "example.com"
-}
-```
-
-If no cached/recent scan exists, `badge` and `score` are `null` with a `message` field suggesting a full scan.
-
-## Database Tables
-
-Run migrations in order:
-1. `supabase/migrations/20240203_scan_tables.sql` — Core tables (scan_results, scan_evidence)
-2. `supabase/migrations/20240204_scan_reports.sql` — Reports table (scan_reports, report_aggregates view)
-3. `supabase/migrations/20240205_cache_schema_threat.sql` — Cache table + schema alignment + new providers
-
-Tables:
-- `scan_results` — Main scan records
-- `scan_evidence` — Evidence cards (card_title, card_status, card_payload columns)
-- `scan_reports` — User-submitted reports (feeds into pattern_match + reputation_reports)
-- `scan_cache` — URL scan cache (key, value jsonb, expires_at)
-
-Views:
-- `scan_with_evidence` — Join of results + evidence
-- `report_aggregates` — Report counts per URL/domain
-
-## Evidence Providers
-
-| Provider | Source | Weight | Requires |
-|----------|--------|--------|----------|
-| `link_intel` | Redirect analysis | 25 | — |
-| `domain_intel` | WHOIS + DNS + SSL | 30 | WHOIS_API_KEY (optional) |
-| `pattern_match` | Keywords + known scams + reports | 20 | — |
-| `google_safe_browsing` | Google Safe Browsing v4 | 15 | GOOGLE_SAFE_BROWSING_API_KEY |
-| `virustotal` | VirusTotal URL scan | 15 | VIRUSTOTAL_API_KEY |
-| `reputation_reports` | Community report aggregates | 10 | — |
-
-If an external API key is missing, the provider returns `status: "unknown"`, `weight: 0`, `score_impact: 0` — no crash.
-
-## Automated Test Script
-
+### Tests
 ```powershell
-$env:SUPABASE_PROJECT_URL = "https://<REF>.supabase.co"
-$env:SUPABASE_ANON_KEY    = "eyJhbGci..."   # legacy anon JWT
-$env:FUNCTIONS_BASE_URL   = "https://<REF>.supabase.co/functions/v1"
-
-pwsh scripts/tests.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\tests.ps1
 ```
 
-Runs: 6 health checks → content-scan → scan-evidence → report-scan → quick-scan. Exit code 1 on any failure.
+## Troubleshooting
+- **404 on `/functions/v1/<fn>?health=1`** → function not deployed or wrong project ref/base URL.
+- **`Entrypoint path does not exist` in deploy** → running outside repo root; use `scripts\sb-deploy-all.ps1` (self-roots).
+- **`pwsh` not recognized** → use Windows PowerShell command above (`powershell -ExecutionPolicy Bypass ...`).
+- **`column device_id does not exist` (appeals/claims index)** → apply fix-forward migration `20240216_trustops_compat_fix.sql` via `supabase db push --linked`.
+- **`cannot change name of view column ... function_name to endpoint`** → resolved by `20240215_production_hardening.sql` (drops/recreates `telemetry_summary`).
+- **Docker warning** → start Docker Desktop and confirm with `docker info`.

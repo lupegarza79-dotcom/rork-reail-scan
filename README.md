@@ -316,3 +316,16 @@ For mobile apps, you'll configure your app's deep linking scheme in `app.json`.
 Rork builds fully native mobile apps using React Native and Expo - the same technology stack used by Discord, Shopify, Coinbase, Instagram, and nearly 30% of the top 100 apps on the App Store.
 
 Your Rork app is production-ready and can be published to both the App Store and Google Play Store. You can also export your app to run on the web, making it truly cross-platform.
+
+## Supabase Operations (Windows)
+
+Use PowerShell 5+ commands (no `pwsh` requirement):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\sb-deploy-all.ps1 -ProjectRef favpzctusdjnnoyoabrz
+powershell -ExecutionPolicy Bypass -File .\scripts\tests.ps1
+```
+
+If health checks return `404` for `/functions/v1/<fn>?health=1`, verify you deployed that function and linked the correct project ref.
