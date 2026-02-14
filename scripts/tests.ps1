@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 param()
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +13,7 @@ if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY (legac
 if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
 
 if (-not $anonKey.StartsWith("eyJ")) {
-    Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' — make sure you are using the legacy anon JWT, not sb_publishable_*"
+    Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' â€” make sure you are using the legacy anon JWT, not sb_publishable_*"
 }
 
 $functionsBase = $functionsBase.TrimEnd("/")
@@ -322,3 +322,4 @@ foreach ($kv in $results.GetEnumerator()) {
 Write-Host "`nTotal: $pass passed, $fail failed, $skip skipped" -ForegroundColor Cyan
 
 if ($fail -gt 0) { exit 1 }
+
