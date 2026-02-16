@@ -96,8 +96,8 @@ try {
       -Assert {
           param($json)
           if (-not $json.scan_id) { throw "Missing scan_id in response" }
-          $script:scanId = $json.scan_id
-          Write-Host "Captured scan_id: $script:scanId" -ForegroundColor Cyan
+          $scanId = $json.scan_id
+          Write-Host "Captured scan_id: $scanId" -ForegroundColor Cyan
           Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
       }
 
