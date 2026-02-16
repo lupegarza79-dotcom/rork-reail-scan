@@ -106,7 +106,13 @@ serve(async (req: Request) => {
       .single();
 
     if (error) {
-      console.error(`[${ENDPOINT}] Insert error:`, error);
+      console.error(`[${ENDPOINT}] Insert error:`, JSON.stringify({
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        appealRow,
+      }));
       return new Response(JSON.stringify({
         ok: false,
         error_code: "db_error",
