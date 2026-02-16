@@ -120,7 +120,7 @@ Invoke-Step -Name "POST content-scan" -Method "POST" `
 # 2: GET scan-result
 if ($scanId) {
     Invoke-Step -Name "GET scan-result" -Method "GET" `
-        -Uri "$functionsBase/scan-result?id=$scanId" `
+        -Uri "$functionsBase/scan-result?scanId=$scanId" `
         -Assert {
             param($json)
             Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
@@ -133,7 +133,7 @@ if ($scanId) {
 # 3: GET scan-evidence
 if ($scanId) {
     Invoke-Step -Name "GET scan-evidence" -Method "GET" `
-        -Uri "$functionsBase/scan-evidence?id=$scanId" `
+        -Uri "$functionsBase/scan-evidence?scanId=$scanId" `
         -Assert {
             param($json)
             if ($json.evidence) {
@@ -283,14 +283,27 @@ Invoke-Step -Name "POST claim" -Method "POST" `
         }
     }
 
-# 12: POST cache-cleanup
-Invoke-Step -Name "POST cache-cleanup" -Method "POST" `
-    -Uri "$functionsBase/cache-cleanup" `
-    -Body '{}' `
-    -Assert {
-        param($json)
-        Write-Host "Method: $($json.method)  Result: $($json.result)" -ForegroundColor Cyan
+# 12: POST cache-cleanup (expects 403 - requires service-role auth)
+Write-Host "`n--- POST cache-cleanup (expect 403 forbidden) ---" -ForegroundColor Yellow
+try {
+    $resp = Invoke-WebRequest -Uri "$functionsBase/cache-cleanup" -Method "POST" `
+        -Headers $headers -Body '{}' -UseBasicParsing
+    Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Red
+    Write-Host "UNEXPECTED: Should have returned 403" -ForegroundColor Red
+    $results["POST cache-cleanup (expect 403)"] = "FAIL"
+} catch {
+    $statusCode = $null
+    if ($_.Exception.Response) {
+        $statusCode = [int]$_.Exception.Response.StatusCode
     }
+    if ($statusCode -eq 403) {
+        Write-Host "Status: 403 (expected - service-role required)" -ForegroundColor Green
+        $results["POST cache-cleanup (expect 403)"] = "PASS"
+    } else {
+        Write-Host "FAILED: $_ (expected 403)" -ForegroundColor Red
+        $results["POST cache-cleanup (expect 403)"] = "FAIL"
+    }
+}
 
 # ============================================================
 # SECTION 3: Internal endpoint health (service-role would be needed for full test)

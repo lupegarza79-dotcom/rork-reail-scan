@@ -14,7 +14,8 @@ const corsHeaders = {
 };
 
 const ENDPOINT = "wallet-share";
-const DEFAULT_EXPIRY_HOURS = 72;
+const WALLET_SHARE_TTL_DAYS = parseInt(Deno.env.get("WALLET_SHARE_TTL_DAYS") || "8", 10);
+const DEFAULT_EXPIRY_HOURS = WALLET_SHARE_TTL_DAYS * 24; // 8 days = 192 hours
 const TOKEN_LENGTH = 12;
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
