@@ -3,14 +3,14 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-# --- Required env vars ---
-$projectUrl    = $env:SUPABASE_PROJECT_URL
-$anonKey       = $env:SUPABASE_ANON_KEY
-$functionsBase = $env:FUNCTIONS_BASE_URL
+# --- Required env vars (with EXPO_PUBLIC fallbacks) ---
+$projectUrl    = if ($env:SUPABASE_PROJECT_URL)  { $env:SUPABASE_PROJECT_URL }  else { $env:EXPO_PUBLIC_SUPABASE_URL }
+$anonKey       = if ($env:SUPABASE_ANON_KEY)     { $env:SUPABASE_ANON_KEY }     else { $env:EXPO_PUBLIC_SUPABASE_ANON_KEY }
+$functionsBase = if ($env:FUNCTIONS_BASE_URL)   { $env:FUNCTIONS_BASE_URL }   else { $env:EXPO_PUBLIC_API_URL }
 
-if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL"; exit 1 }
-if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY (legacy eyJ...)"; exit 1 }
-if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
+if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL or EXPO_PUBLIC_SUPABASE_URL"; exit 1 }
+if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy eyJ...)"; exit 1 }
+if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EXPO_PUBLIC_API_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
 
 if (-not $anonKey.StartsWith("eyJ")) {
     Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' — make sure you are using the legacy anon JWT, not sb_publishable_*"

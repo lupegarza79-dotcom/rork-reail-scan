@@ -50,28 +50,28 @@ function Invoke-SbLink {
 function Invoke-SbStatus {
     Assert-ProjectRef
     Write-Host "`n[Supabase] Migration status:" -ForegroundColor Cyan
-    npx supabase migration list --project-ref $projectRef
+    npx supabase migration list --linked
 }
 
 function Invoke-SbRepair {
     Assert-ProjectRef
     if (-not $MigrationVersion) {
         Write-Host "`n[Supabase] Listing migrations to identify which to repair..." -ForegroundColor Cyan
-        npx supabase migration list --project-ref $projectRef
+        npx supabase migration list --linked
         Write-Host "`nTo baseline a migration, re-run with:"
         Write-Host "  pwsh scripts/supabase.ps1 -Action repair -MigrationVersion <VERSION>" -ForegroundColor Yellow
         Write-Host "`nExample: pwsh scripts/supabase.ps1 -Action repair -MigrationVersion 20240203" -ForegroundColor DarkCyan
         return
     }
     Write-Host "`n[Supabase] Repairing migration $MigrationVersion as applied (baseline)..." -ForegroundColor Cyan
-    npx supabase migration repair --status applied $MigrationVersion --project-ref $projectRef
+    npx supabase migration repair --status applied $MigrationVersion --linked
     Write-Host "  OK — $MigrationVersion marked as applied" -ForegroundColor Green
 }
 
 function Invoke-SbPush {
     Assert-ProjectRef
     Write-Host "`n[Supabase] Pushing database migrations..." -ForegroundColor Cyan
-    npx supabase db push --project-ref $projectRef
+    npx supabase db push --linked
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n  db push failed. If tables already exist, baseline with:" -ForegroundColor Red
         Write-Host "    pwsh scripts/supabase.ps1 -Action repair -MigrationVersion <VERSION>" -ForegroundColor Yellow
