@@ -83,8 +83,8 @@ serve(async (req: Request) => {
       });
     }
 
-    if (scan.device_id && scan.device_id !== deviceId && deviceId === "anonymous") {
-      console.log("[scan-result] Device ownership check: restricted", deviceId, "!=", scan.device_id);
+    if (scan.device_id && scan.device_id !== deviceId) {
+      console.log("[scan-result] Device ownership check: forbidden", deviceId, "!=", scan.device_id);
       return new Response(JSON.stringify({
         ok: false,
         error_code: "forbidden",

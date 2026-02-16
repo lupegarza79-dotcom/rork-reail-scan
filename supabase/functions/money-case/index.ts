@@ -327,7 +327,7 @@ serve(async (req: Request) => {
         }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      if (moneyCase.device_id && moneyCase.device_id !== deviceId && deviceId === "anonymous") {
+      if (moneyCase.device_id && moneyCase.device_id !== deviceId) {
         return new Response(JSON.stringify({
           ok: false,
           error_code: "forbidden",
