@@ -3,1016 +3,263 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-# --- Auto-load .env file if present ---
-$envFile = Join-Path $PSScriptRoot "../.env"
-if (Test-Path $envFile) {
-    Write-Host "Loading environment from .env" -ForegroundColor DarkGray
-    Get-Content $envFile | ForEach-Object {
-        if ($_ -match '^\s*([^#][^=]+)=(.*)
-$projectUrl    = if ($env:SUPABASE_PROJECT_URL)  { $env:SUPABASE_PROJECT_URL }  else { $env:EXPO_PUBLIC_SUPABASE_URL }
-$anonKey       = if ($env:SUPABASE_ANON_KEY)     { $env:SUPABASE_ANON_KEY }     else { $env:EXPO_PUBLIC_SUPABASE_ANON_KEY }
-$functionsBase = if ($env:FUNCTIONS_BASE_URL)   { $env:FUNCTIONS_BASE_URL }   else { $env:EXPO_PUBLIC_API_URL }
+# ----------------------------
+# Load .env (project root)
+# ----------------------------
+function Load-DotEnvFile([string]$Path) {
+  if (-not (Test-Path $Path)) { return }
 
-if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL or EXPO_PUBLIC_SUPABASE_URL"; exit 1 }
-if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy eyJ...)"; exit 1 }
-if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EXPO_PUBLIC_API_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
+  Write-Host "Loading environment from: $Path" -ForegroundColor DarkGray
 
-if (-not $anonKey.StartsWith("eyJ")) {
-    Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' — make sure you are using the legacy anon JWT, not sb_publishable_*"
+  Get-Content $Path | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line) { return }
+    if ($line.StartsWith("#")) { return }
+
+    $idx = $line.IndexOf("=")
+    if ($idx -lt 1) { return }
+
+    $key = $line.Substring(0, $idx).Trim()
+    $val = $line.Substring($idx + 1).Trim()
+
+    # Remove surrounding quotes if present
+    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+      $val = $val.Substring(1, $val.Length - 2)
+    }
+
+    # Set only if not already set in the session
+    if (-not [string]::IsNullOrWhiteSpace($key) -and -not $env:$key) {
+      [Environment]::SetEnvironmentVariable($key, $val, "Process")
+    }
+  }
 }
 
-$functionsBase = $functionsBase.TrimEnd("/")
-$deviceId = [guid]::NewGuid().ToString()
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$envPath  = Join-Path $repoRoot ".env"
+Load-DotEnvFile $envPath
 
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  REAiL Edge Functions Test Suite" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Functions Base : $functionsBase"
-Write-Host "Device ID      : $deviceId"
-Write-Host ""
+# ----------------------------
+# Resolve required settings
+# ----------------------------
+$projectUrl = $env:SUPABASE_PROJECT_URL
+if (-not $projectUrl) { $projectUrl = $env:EXPO_PUBLIC_SUPABASE_URL }
+
+$anonKey = $env:SUPABASE_ANON_KEY
+if (-not $anonKey) { $anonKey = $env:EXPO_PUBLIC_SUPABASE_ANON_KEY }
+
+$functionsBase = $env:FUNCTIONS_BASE_URL
+if (-not $functionsBase) { $functionsBase = $env:EXPO_PUBLIC_API_URL }
+if (-not $functionsBase -and $projectUrl) { $functionsBase = "$projectUrl/functions/v1" }
+
+if (-not $projectUrl) { Write-Error "Missing env var SUPABASE_PROJECT_URL or EXPO_PUBLIC_SUPABASE_URL"; exit 1 }
+if (-not $anonKey)    { Write-Error "Missing env var SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_ANON_KEY"; exit 1 }
+if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EXPO_PUBLIC_API_URL"; exit 1 }
+
+$functionsBase = $functionsBase.TrimEnd("/")
+
+# Basic sanity check (legacy anon JWT usually starts with eyJ)
+if (-not $anonKey.StartsWith("eyJ")) {
+  Write-Warning "ANON key does not start with 'eyJ'. Make sure you used the 'anon public' JWT key (Legacy anon) from Supabase."
+}
+
+# ----------------------------
+# HTTP helpers
+# ----------------------------
+$deviceId = ("ps1-" + [Guid]::NewGuid().ToString("N"))
 
 $headers = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $deviceId
-    "Content-Type"  = "application/json"
+  "apikey"        = $anonKey
+  "authorization" = "Bearer $anonKey"
+  "x-device-id"   = $deviceId
+}
+
+function Invoke-JsonRequest {
+  param(
+    [Parameter(Mandatory=$true)][ValidateSet("GET","POST")] [string]$Method,
+    [Parameter(Mandatory=$true)] [string]$Url,
+    [object]$Body = $null
+  )
+
+  $params = @{
+    Method     = $Method
+    Uri        = $Url
+    Headers    = $headers
+    TimeoutSec = 90
+  }
+
+  if ($Body -ne $null) {
+    $params["ContentType"] = "application/json"
+    $params["Body"] = ($Body | ConvertTo-Json -Depth 20)
+  }
+
+  try {
+    $resp = Invoke-WebRequest @params
+    $status  = [int]$resp.StatusCode
+    $content = $resp.Content
+  } catch {
+    $status = 0
+    $content = ""
+    if ($_.Exception.Response) {
+      try {
+        $status = [int]$_.Exception.Response.StatusCode.value__
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $content = $reader.ReadToEnd()
+      } catch { }
+    } else {
+      $content = $_.ToString()
+    }
+  }
+
+  $json = $null
+  try { $json = $content | ConvertFrom-Json } catch { }
+
+  [pscustomobject]@{
+    Status  = $status
+    Content = $content
+    Json    = $json
+  }
 }
 
 $results = [ordered]@{}
-$scanId  = $null
 
-function Invoke-Step {
-    param(
-        [string]$Name,
-        [string]$Method,
-        [string]$Uri,
-        [string]$Body,
-        [hashtable]$OverrideHeaders,
-        [scriptblock]$Assert
-    )
+function Run-Step {
+  param(
+    [Parameter(Mandatory=$true)][string]$Name,
+    [Parameter(Mandatory=$true)][ValidateSet("GET","POST")] [string]$Method,
+    [Parameter(Mandatory=$true)][string]$Url,
+    [object]$Body = $null,
+    [scriptblock]$OnOk = $null
+  )
 
-    Write-Host "`n--- $Name ---" -ForegroundColor Yellow
-    try {
-        $h = if ($OverrideHeaders) { $OverrideHeaders } else { $headers }
-        $params = @{
-            Uri     = $Uri
-            Method  = $Method
-            Headers = $h
-            UseBasicParsing = $true
-        }
-        if ($Body) { $params["Body"] = $Body }
+  Write-Host "`n=== $Name ===" -ForegroundColor Cyan
+  Write-Host "$Method $Url" -ForegroundColor DarkGray
 
-        $resp = Invoke-WebRequest @params
-        $json = $resp.Content | ConvertFrom-Json
+  $r = Invoke-JsonRequest -Method $Method -Url $Url -Body $Body
 
-        Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Green
-        Write-Host "Body  : $($resp.Content.Substring(0, [Math]::Min(500, $resp.Content.Length)))"
-
-        if ($Assert) {
-            & $Assert $json
-        }
-
-        $results[$Name] = "PASS"
+  if ($r.Status -ge 200 -and $r.Status -lt 300) {
+    $results[$Name] = "PASS"
+    Write-Host "Status: $($r.Status)" -ForegroundColor Green
+    if ($r.Content) {
+      $preview = $r.Content.Substring(0, [Math]::Min(400, $r.Content.Length))
+      Write-Host "Body  : $preview" -ForegroundColor DarkGray
     }
-    catch {
-        Write-Host "FAILED: $_" -ForegroundColor Red
-        if ($_.Exception.Response) {
-            try {
-                $sr = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-                Write-Host "Response: $($sr.ReadToEnd())" -ForegroundColor Red
-            } catch {}
-        }
-        $results[$Name] = "FAIL"
-    }
+    if ($OnOk -and $r.Json) { & $OnOk $r.Json }
+    return $r
+  } else {
+    $results[$Name] = "FAIL"
+    Write-Host "Status: $($r.Status)" -ForegroundColor Red
+    if ($r.Content) { Write-Host $r.Content -ForegroundColor Red }
+    return $r
+  }
 }
 
-# ============================================================
-# SECTION 1: Health checks for all endpoints
-# ============================================================
-Write-Host "`n=== HEALTH CHECKS ===" -ForegroundColor Magenta
+Write-Host "`nRepo: $repoRoot" -ForegroundColor DarkGray
+Write-Host "Functions base: $functionsBase" -ForegroundColor DarkGray
+Write-Host "Device-Id: $deviceId" -ForegroundColor DarkGray
 
-$publicEndpoints = @(
-    "content-scan", "scan-evidence", "scan-history", "scan-result",
-    "report-scan", "quick-scan", "wallet-share", "appeal", "claim",
-    "cache-cleanup"
-)
-$internalEndpoints = @(
-    "audit-run", "trustops-resolve-appeal", "trustops-verify-claim",
-    "outcome-update", "notify-send"
+# ----------------------------
+# 0) Health checks
+# ----------------------------
+$healthEndpoints = @(
+  "content-scan",
+  "scan-result",
+  "scan-evidence",
+  "scan-history",
+  "report-scan",
+  "quick-scan",
+  "wallet-share",
+  "appeal",
+  "claim"
 )
 
-foreach ($ep in $publicEndpoints + $internalEndpoints) {
-    Invoke-Step -Name "Health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
+foreach ($ep in $healthEndpoints) {
+  Run-Step -Name "Health: $ep" -Method "GET" -Url "$functionsBase/$ep?health=1" | Out-Null
 }
 
-# ============================================================
-# SECTION 2: Public endpoint functional tests
-# ============================================================
-Write-Host "`n=== PUBLIC ENDPOINT TESTS ===" -ForegroundColor Magenta
+# ----------------------------
+# 1) content-scan (creates scan_id)
+# ----------------------------
+$scanId = $null
+$targetUrl = "https://example.com"
 
-# 1: POST content-scan
-Invoke-Step -Name "POST content-scan" -Method "POST" `
-    -Uri "$functionsBase/content-scan" `
-    -Body '{"url":"https://example.com"}' `
-    -Assert {
-        param($json)
-        if (-not $json.scan_id) { throw "Missing scan_id in response" }
-        $script:scanId = $json.scan_id
-        Write-Host "Captured scan_id: $script:scanId" -ForegroundColor Cyan
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
+$r1 = Run-Step -Name "POST content-scan" -Method "POST" -Url "$functionsBase/content-scan" -Body @{
+  url = $targetUrl
+} -OnOk {
+  param($json)
+  if ($json.scan_id) { $script:scanId = $json.scan_id }
+  Write-Host "scan_id: $($script:scanId)" -ForegroundColor Cyan
+}
 
-# 2: GET scan-result
+# 2) scan-result/evidence/history (only if scan_id exists)
 if ($scanId) {
-    Invoke-Step -Name "GET scan-result" -Method "GET" `
-        -Uri "$functionsBase/scan-result?scanId=$scanId" `
-        -Assert {
-            param($json)
-            Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-        }
+  Run-Step -Name "GET scan-result" -Method "GET" -Url "$functionsBase/scan-result?scanId=$scanId" | Out-Null
+  Run-Step -Name "GET scan-evidence" -Method "GET" -Url "$functionsBase/scan-evidence?scanId=$scanId" | Out-Null
+  Run-Step -Name "GET scan-history" -Method "GET" -Url "$functionsBase/scan-history?scanId=$scanId" | Out-Null
 } else {
-    Write-Host "`n--- GET scan-result --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-result"] = "SKIP"
+  $results["GET scan-result"] = "SKIP"
+  $results["GET scan-evidence"] = "SKIP"
+  $results["GET scan-history"] = "SKIP"
 }
 
-# 3: GET scan-evidence
-if ($scanId) {
-    Invoke-Step -Name "GET scan-evidence" -Method "GET" `
-        -Uri "$functionsBase/scan-evidence?scanId=$scanId" `
-        -Assert {
-            param($json)
-            if ($json.evidence) {
-                Write-Host "Evidence count: $($json.evidence.Count)" -ForegroundColor Cyan
-            } else {
-                Write-Host "Evidence: (none or different format)" -ForegroundColor DarkYellow
-            }
-        }
-} else {
-    Write-Host "`n--- GET scan-evidence --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-evidence"] = "SKIP"
-}
+# 3) report-scan
+Run-Step -Name "POST report-scan" -Method "POST" -Url "$functionsBase/report-scan" -Body @{
+  url = $targetUrl
+  report_type = "scam"
+  description = "test report"
+  scan_id = $scanId
+} | Out-Null
 
-# 4: GET scan-history
-Invoke-Step -Name "GET scan-history" -Method "GET" `
-    -Uri "$functionsBase/scan-history?device_id=$deviceId&limit=10" `
-    -Assert {
-        param($json)
-        Write-Host "Items: $($json.items.Count)  Total: $($json.total)" -ForegroundColor Cyan
-    }
+# 4) quick-scan (GET + POST)
+Run-Step -Name "GET quick-scan" -Method "GET" -Url "$functionsBase/quick-scan?url=$([Uri]::EscapeDataString($targetUrl))" | Out-Null
+Run-Step -Name "POST quick-scan" -Method "POST" -Url "$functionsBase/quick-scan" -Body @{ url = $targetUrl } | Out-Null
 
-# 5: POST report-scan (use different device to avoid rate limit)
-$reportDeviceId = [guid]::NewGuid().ToString()
-$reportHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $reportDeviceId
-    "Content-Type"  = "application/json"
-}
-
-if ($scanId) {
-    $reportBody = @{
-        scan_id     = $scanId
-        url         = "https://example.com"
-        report_type = "safe"
-        description = "Automated test report"
-    } | ConvertTo-Json
-
-    Invoke-Step -Name "POST report-scan" -Method "POST" `
-        -Uri "$functionsBase/report-scan" `
-        -Body $reportBody `
-        -OverrideHeaders $reportHeaders `
-        -Assert {
-            param($json)
-            if (-not $json.report_id) { throw "Missing report_id" }
-            Write-Host "report_id: $($json.report_id)  total: $($json.total_reports)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- POST report-scan --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["POST report-scan"] = "SKIP"
-}
-
-# 6: GET quick-scan
-Invoke-Step -Name "GET quick-scan" -Method "GET" `
-    -Uri "$functionsBase/quick-scan?url=https://example.com" `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
-
-# 7: POST quick-scan
-Invoke-Step -Name "POST quick-scan" -Method "POST" `
-    -Uri "$functionsBase/quick-scan" `
-    -Body '{"input":"https://example.com","input_type":"url","share":false}' `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-    }
-
-# 8: POST wallet-share (create share link)
+# 5) wallet-share (POST to get token, then GET)
 $shareToken = $null
-Invoke-Step -Name "POST wallet-share" -Method "POST" `
-    -Uri "$functionsBase/wallet-share" `
-    -Body '{"url":"https://example.com","expiry_hours":24}' `
-    -Assert {
-        param($json)
-        if ($json.token) {
-            $script:shareToken = $json.token
-            Write-Host "Token: $($json.token)  Badge: $($json.badge)" -ForegroundColor Cyan
-        } else {
-            Write-Host "No token returned" -ForegroundColor DarkYellow
-        }
-    }
+$rws = Run-Step -Name "POST wallet-share" -Method "POST" -Url "$functionsBase/wallet-share" -Body @{
+  url = $targetUrl
+  expiry_hours = 24
+} -OnOk {
+  param($json)
+  if ($json.token) { $script:shareToken = $json.token }
+  Write-Host "token: $($script:shareToken)" -ForegroundColor Cyan
+}
 
-# 9: GET wallet-share (resolve share link)
 if ($shareToken) {
-    Invoke-Step -Name "GET wallet-share" -Method "GET" `
-        -Uri "$functionsBase/wallet-share?token=$shareToken" `
-        -Assert {
-            param($json)
-            Write-Host "Domain: $($json.domain)  Badge: $($json.badge)  Views: $($json.view_count)" -ForegroundColor Cyan
-        }
+  Run-Step -Name "GET wallet-share" -Method "GET" -Url "$functionsBase/wallet-share?token=$shareToken" | Out-Null
 } else {
-    Write-Host "`n--- GET wallet-share --- SKIPPED (no share token)" -ForegroundColor DarkYellow
-    $results["GET wallet-share"] = "SKIP"
+  $results["GET wallet-share"] = "SKIP"
 }
 
-# 10: POST appeal
-$appealDeviceId = [guid]::NewGuid().ToString()
-$appealHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $appealDeviceId
-    "Content-Type"  = "application/json"
-}
-$appealBody = @{
-    scan_id     = $scanId
-    reason_type = "incorrect_classification"
-    message     = "Automated test appeal - this domain is safe"
-    contact     = "test@example.com"
-} | ConvertTo-Json
+# 6) appeal
+Run-Step -Name "POST appeal" -Method "POST" -Url "$functionsBase/appeal" -Body @{
+  scan_id = $scanId
+  message = "This is a test appeal message (>= 5 chars)."
+  reason_type = "incorrect_classification"
+  contact = "test@example.com"
+  evidence_links = @("https://example.com/evidence")
+} | Out-Null
 
-Invoke-Step -Name "POST appeal" -Method "POST" `
-    -Uri "$functionsBase/appeal" `
-    -Body $appealBody `
-    -OverrideHeaders $appealHeaders `
-    -Assert {
-        param($json)
-        if ($json.appeal_id) {
-            Write-Host "appeal_id: $($json.appeal_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
+# 7) claim
+Run-Step -Name "POST claim" -Method "POST" -Url "$functionsBase/claim" -Body @{
+  domain = "example.com"
+  contact = "test@example.com"
+  message = "This is a test claim message."
+  evidence_links = @("https://example.com/evidence")
+} | Out-Null
 
-# 11: POST claim
-$claimDeviceId = [guid]::NewGuid().ToString()
-$claimHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $claimDeviceId
-    "Content-Type"  = "application/json"
-}
-$claimBody = @{
-    domain       = "example.com"
-    contact      = "owner@example.com"
-    proof_method = "documentation"
-    message      = "Automated test claim"
-} | ConvertTo-Json
-
-Invoke-Step -Name "POST claim" -Method "POST" `
-    -Uri "$functionsBase/claim" `
-    -Body $claimBody `
-    -OverrideHeaders $claimHeaders `
-    -Assert {
-        param($json)
-        if ($json.claim_id) {
-            Write-Host "claim_id: $($json.claim_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
-
-# 12: POST cache-cleanup (expects 403 - requires service-role auth)
-Write-Host "`n--- POST cache-cleanup (expect 403 forbidden) ---" -ForegroundColor Yellow
-try {
-    $resp = Invoke-WebRequest -Uri "$functionsBase/cache-cleanup" -Method "POST" `
-        -Headers $headers -Body '{}' -UseBasicParsing
-    Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Red
-    Write-Host "UNEXPECTED: Should have returned 403" -ForegroundColor Red
-    $results["POST cache-cleanup (expect 403)"] = "FAIL"
-} catch {
-    $statusCode = $null
-    if ($_.Exception.Response) {
-        $statusCode = [int]$_.Exception.Response.StatusCode
-    }
-    if ($statusCode -eq 403) {
-        Write-Host "Status: 403 (expected - service-role required)" -ForegroundColor Green
-        $results["POST cache-cleanup (expect 403)"] = "PASS"
-    } else {
-        Write-Host "FAILED: $_ (expected 403)" -ForegroundColor Red
-        $results["POST cache-cleanup (expect 403)"] = "FAIL"
-    }
-}
-
-# ============================================================
-# SECTION 3: Internal endpoint health (service-role would be needed for full test)
-# ============================================================
-Write-Host "`n=== INTERNAL ENDPOINTS (health only with anon key) ===" -ForegroundColor Magenta
-
-foreach ($ep in $internalEndpoints) {
-    Invoke-Step -Name "Internal health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
-}
-
-# ============================================================
-# SUMMARY
-# ============================================================
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  SUMMARY" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
+# ----------------------------
+# Summary
+# ----------------------------
 $pass = 0; $fail = 0; $skip = 0
+Write-Host "`n=== SUMMARY ===" -ForegroundColor Cyan
 foreach ($kv in $results.GetEnumerator()) {
-    $color = switch ($kv.Value) {
-        "PASS" { "Green" }
-        "FAIL" { "Red" }
-        default { "DarkYellow" }
-    }
-    Write-Host ("  [{0}] {1}" -f $kv.Value, $kv.Key) -ForegroundColor $color
-    switch ($kv.Value) { "PASS" { $pass++ } "FAIL" { $fail++ } default { $skip++ } }
+  $color = switch ($kv.Value) {
+    "PASS" { "Green" }
+    "FAIL" { "Red" }
+    default { "DarkYellow" }
+  }
+  Write-Host ("  [{0}] {1}" -f $kv.Value, $kv.Key) -ForegroundColor $color
+  switch ($kv.Value) { "PASS" { $pass++ } "FAIL" { $fail++ } default { $skip++ } }
 }
-
 Write-Host "`nTotal: $pass passed, $fail failed, $skip skipped" -ForegroundColor Cyan
-
-if ($fail -gt 0) { exit 1 }
-) {
-            $name = $matches[1].Trim()
-            $value = $matches[2].Trim()
-            # Remove surrounding quotes if present
-            if ($value -match '^["''](.*)["\'']
-$projectUrl    = if ($env:SUPABASE_PROJECT_URL)  { $env:SUPABASE_PROJECT_URL }  else { $env:EXPO_PUBLIC_SUPABASE_URL }
-$anonKey       = if ($env:SUPABASE_ANON_KEY)     { $env:SUPABASE_ANON_KEY }     else { $env:EXPO_PUBLIC_SUPABASE_ANON_KEY }
-$functionsBase = if ($env:FUNCTIONS_BASE_URL)   { $env:FUNCTIONS_BASE_URL }   else { $env:EXPO_PUBLIC_API_URL }
-
-if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL or EXPO_PUBLIC_SUPABASE_URL"; exit 1 }
-if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy eyJ...)"; exit 1 }
-if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EXPO_PUBLIC_API_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
-
-if (-not $anonKey.StartsWith("eyJ")) {
-    Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' — make sure you are using the legacy anon JWT, not sb_publishable_*"
-}
-
-$functionsBase = $functionsBase.TrimEnd("/")
-$deviceId = [guid]::NewGuid().ToString()
-
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  REAiL Edge Functions Test Suite" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Functions Base : $functionsBase"
-Write-Host "Device ID      : $deviceId"
-Write-Host ""
-
-$headers = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $deviceId
-    "Content-Type"  = "application/json"
-}
-
-$results = [ordered]@{}
-$scanId  = $null
-
-function Invoke-Step {
-    param(
-        [string]$Name,
-        [string]$Method,
-        [string]$Uri,
-        [string]$Body,
-        [hashtable]$OverrideHeaders,
-        [scriptblock]$Assert
-    )
-
-    Write-Host "`n--- $Name ---" -ForegroundColor Yellow
-    try {
-        $h = if ($OverrideHeaders) { $OverrideHeaders } else { $headers }
-        $params = @{
-            Uri     = $Uri
-            Method  = $Method
-            Headers = $h
-            UseBasicParsing = $true
-        }
-        if ($Body) { $params["Body"] = $Body }
-
-        $resp = Invoke-WebRequest @params
-        $json = $resp.Content | ConvertFrom-Json
-
-        Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Green
-        Write-Host "Body  : $($resp.Content.Substring(0, [Math]::Min(500, $resp.Content.Length)))"
-
-        if ($Assert) {
-            & $Assert $json
-        }
-
-        $results[$Name] = "PASS"
-    }
-    catch {
-        Write-Host "FAILED: $_" -ForegroundColor Red
-        if ($_.Exception.Response) {
-            try {
-                $sr = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-                Write-Host "Response: $($sr.ReadToEnd())" -ForegroundColor Red
-            } catch {}
-        }
-        $results[$Name] = "FAIL"
-    }
-}
-
-# ============================================================
-# SECTION 1: Health checks for all endpoints
-# ============================================================
-Write-Host "`n=== HEALTH CHECKS ===" -ForegroundColor Magenta
-
-$publicEndpoints = @(
-    "content-scan", "scan-evidence", "scan-history", "scan-result",
-    "report-scan", "quick-scan", "wallet-share", "appeal", "claim",
-    "cache-cleanup"
-)
-$internalEndpoints = @(
-    "audit-run", "trustops-resolve-appeal", "trustops-verify-claim",
-    "outcome-update", "notify-send"
-)
-
-foreach ($ep in $publicEndpoints + $internalEndpoints) {
-    Invoke-Step -Name "Health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
-}
-
-# ============================================================
-# SECTION 2: Public endpoint functional tests
-# ============================================================
-Write-Host "`n=== PUBLIC ENDPOINT TESTS ===" -ForegroundColor Magenta
-
-# 1: POST content-scan
-Invoke-Step -Name "POST content-scan" -Method "POST" `
-    -Uri "$functionsBase/content-scan" `
-    -Body '{"url":"https://example.com"}' `
-    -Assert {
-        param($json)
-        if (-not $json.scan_id) { throw "Missing scan_id in response" }
-        $script:scanId = $json.scan_id
-        Write-Host "Captured scan_id: $script:scanId" -ForegroundColor Cyan
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
-
-# 2: GET scan-result
-if ($scanId) {
-    Invoke-Step -Name "GET scan-result" -Method "GET" `
-        -Uri "$functionsBase/scan-result?scanId=$scanId" `
-        -Assert {
-            param($json)
-            Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- GET scan-result --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-result"] = "SKIP"
-}
-
-# 3: GET scan-evidence
-if ($scanId) {
-    Invoke-Step -Name "GET scan-evidence" -Method "GET" `
-        -Uri "$functionsBase/scan-evidence?scanId=$scanId" `
-        -Assert {
-            param($json)
-            if ($json.evidence) {
-                Write-Host "Evidence count: $($json.evidence.Count)" -ForegroundColor Cyan
-            } else {
-                Write-Host "Evidence: (none or different format)" -ForegroundColor DarkYellow
-            }
-        }
-} else {
-    Write-Host "`n--- GET scan-evidence --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-evidence"] = "SKIP"
-}
-
-# 4: GET scan-history
-Invoke-Step -Name "GET scan-history" -Method "GET" `
-    -Uri "$functionsBase/scan-history?device_id=$deviceId&limit=10" `
-    -Assert {
-        param($json)
-        Write-Host "Items: $($json.items.Count)  Total: $($json.total)" -ForegroundColor Cyan
-    }
-
-# 5: POST report-scan (use different device to avoid rate limit)
-$reportDeviceId = [guid]::NewGuid().ToString()
-$reportHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $reportDeviceId
-    "Content-Type"  = "application/json"
-}
-
-if ($scanId) {
-    $reportBody = @{
-        scan_id     = $scanId
-        url         = "https://example.com"
-        report_type = "safe"
-        description = "Automated test report"
-    } | ConvertTo-Json
-
-    Invoke-Step -Name "POST report-scan" -Method "POST" `
-        -Uri "$functionsBase/report-scan" `
-        -Body $reportBody `
-        -OverrideHeaders $reportHeaders `
-        -Assert {
-            param($json)
-            if (-not $json.report_id) { throw "Missing report_id" }
-            Write-Host "report_id: $($json.report_id)  total: $($json.total_reports)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- POST report-scan --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["POST report-scan"] = "SKIP"
-}
-
-# 6: GET quick-scan
-Invoke-Step -Name "GET quick-scan" -Method "GET" `
-    -Uri "$functionsBase/quick-scan?url=https://example.com" `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
-
-# 7: POST quick-scan
-Invoke-Step -Name "POST quick-scan" -Method "POST" `
-    -Uri "$functionsBase/quick-scan" `
-    -Body '{"input":"https://example.com","input_type":"url","share":false}' `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-    }
-
-# 8: POST wallet-share (create share link)
-$shareToken = $null
-Invoke-Step -Name "POST wallet-share" -Method "POST" `
-    -Uri "$functionsBase/wallet-share" `
-    -Body '{"url":"https://example.com","expiry_hours":24}' `
-    -Assert {
-        param($json)
-        if ($json.token) {
-            $script:shareToken = $json.token
-            Write-Host "Token: $($json.token)  Badge: $($json.badge)" -ForegroundColor Cyan
-        } else {
-            Write-Host "No token returned" -ForegroundColor DarkYellow
-        }
-    }
-
-# 9: GET wallet-share (resolve share link)
-if ($shareToken) {
-    Invoke-Step -Name "GET wallet-share" -Method "GET" `
-        -Uri "$functionsBase/wallet-share?token=$shareToken" `
-        -Assert {
-            param($json)
-            Write-Host "Domain: $($json.domain)  Badge: $($json.badge)  Views: $($json.view_count)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- GET wallet-share --- SKIPPED (no share token)" -ForegroundColor DarkYellow
-    $results["GET wallet-share"] = "SKIP"
-}
-
-# 10: POST appeal
-$appealDeviceId = [guid]::NewGuid().ToString()
-$appealHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $appealDeviceId
-    "Content-Type"  = "application/json"
-}
-$appealBody = @{
-    scan_id     = $scanId
-    reason_type = "incorrect_classification"
-    message     = "Automated test appeal - this domain is safe"
-    contact     = "test@example.com"
-} | ConvertTo-Json
-
-Invoke-Step -Name "POST appeal" -Method "POST" `
-    -Uri "$functionsBase/appeal" `
-    -Body $appealBody `
-    -OverrideHeaders $appealHeaders `
-    -Assert {
-        param($json)
-        if ($json.appeal_id) {
-            Write-Host "appeal_id: $($json.appeal_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
-
-# 11: POST claim
-$claimDeviceId = [guid]::NewGuid().ToString()
-$claimHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $claimDeviceId
-    "Content-Type"  = "application/json"
-}
-$claimBody = @{
-    domain       = "example.com"
-    contact      = "owner@example.com"
-    proof_method = "documentation"
-    message      = "Automated test claim"
-} | ConvertTo-Json
-
-Invoke-Step -Name "POST claim" -Method "POST" `
-    -Uri "$functionsBase/claim" `
-    -Body $claimBody `
-    -OverrideHeaders $claimHeaders `
-    -Assert {
-        param($json)
-        if ($json.claim_id) {
-            Write-Host "claim_id: $($json.claim_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
-
-# 12: POST cache-cleanup (expects 403 - requires service-role auth)
-Write-Host "`n--- POST cache-cleanup (expect 403 forbidden) ---" -ForegroundColor Yellow
-try {
-    $resp = Invoke-WebRequest -Uri "$functionsBase/cache-cleanup" -Method "POST" `
-        -Headers $headers -Body '{}' -UseBasicParsing
-    Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Red
-    Write-Host "UNEXPECTED: Should have returned 403" -ForegroundColor Red
-    $results["POST cache-cleanup (expect 403)"] = "FAIL"
-} catch {
-    $statusCode = $null
-    if ($_.Exception.Response) {
-        $statusCode = [int]$_.Exception.Response.StatusCode
-    }
-    if ($statusCode -eq 403) {
-        Write-Host "Status: 403 (expected - service-role required)" -ForegroundColor Green
-        $results["POST cache-cleanup (expect 403)"] = "PASS"
-    } else {
-        Write-Host "FAILED: $_ (expected 403)" -ForegroundColor Red
-        $results["POST cache-cleanup (expect 403)"] = "FAIL"
-    }
-}
-
-# ============================================================
-# SECTION 3: Internal endpoint health (service-role would be needed for full test)
-# ============================================================
-Write-Host "`n=== INTERNAL ENDPOINTS (health only with anon key) ===" -ForegroundColor Magenta
-
-foreach ($ep in $internalEndpoints) {
-    Invoke-Step -Name "Internal health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
-}
-
-# ============================================================
-# SUMMARY
-# ============================================================
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  SUMMARY" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-$pass = 0; $fail = 0; $skip = 0
-foreach ($kv in $results.GetEnumerator()) {
-    $color = switch ($kv.Value) {
-        "PASS" { "Green" }
-        "FAIL" { "Red" }
-        default { "DarkYellow" }
-    }
-    Write-Host ("  [{0}] {1}" -f $kv.Value, $kv.Key) -ForegroundColor $color
-    switch ($kv.Value) { "PASS" { $pass++ } "FAIL" { $fail++ } default { $skip++ } }
-}
-
-Write-Host "`nTotal: $pass passed, $fail failed, $skip skipped" -ForegroundColor Cyan
-
-if ($fail -gt 0) { exit 1 }
-) {
-                $value = $matches[1]
-            }
-            [Environment]::SetEnvironmentVariable($name, $value, "Process")
-        }
-    }
-}
-
-# --- Required env vars (with EXPO_PUBLIC fallbacks) ---
-$projectUrl    = if ($env:SUPABASE_PROJECT_URL)  { $env:SUPABASE_PROJECT_URL }  else { $env:EXPO_PUBLIC_SUPABASE_URL }
-$anonKey       = if ($env:SUPABASE_ANON_KEY)     { $env:SUPABASE_ANON_KEY }     else { $env:EXPO_PUBLIC_SUPABASE_ANON_KEY }
-$functionsBase = if ($env:FUNCTIONS_BASE_URL)   { $env:FUNCTIONS_BASE_URL }   else { $env:EXPO_PUBLIC_API_URL }
-
-if (-not $projectUrl)    { Write-Error "Missing env var SUPABASE_PROJECT_URL or EXPO_PUBLIC_SUPABASE_URL"; exit 1 }
-if (-not $anonKey)       { Write-Error "Missing env var SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_ANON_KEY (legacy eyJ...)"; exit 1 }
-if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EXPO_PUBLIC_API_URL (https://<project>.supabase.co/functions/v1)"; exit 1 }
-
-if (-not $anonKey.StartsWith("eyJ")) {
-    Write-Warning "SUPABASE_ANON_KEY does not start with 'eyJ' — make sure you are using the legacy anon JWT, not sb_publishable_*"
-}
-
-$functionsBase = $functionsBase.TrimEnd("/")
-$deviceId = [guid]::NewGuid().ToString()
-
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  REAiL Edge Functions Test Suite" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Functions Base : $functionsBase"
-Write-Host "Device ID      : $deviceId"
-Write-Host ""
-
-$headers = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $deviceId
-    "Content-Type"  = "application/json"
-}
-
-$results = [ordered]@{}
-$scanId  = $null
-
-function Invoke-Step {
-    param(
-        [string]$Name,
-        [string]$Method,
-        [string]$Uri,
-        [string]$Body,
-        [hashtable]$OverrideHeaders,
-        [scriptblock]$Assert
-    )
-
-    Write-Host "`n--- $Name ---" -ForegroundColor Yellow
-    try {
-        $h = if ($OverrideHeaders) { $OverrideHeaders } else { $headers }
-        $params = @{
-            Uri     = $Uri
-            Method  = $Method
-            Headers = $h
-            UseBasicParsing = $true
-        }
-        if ($Body) { $params["Body"] = $Body }
-
-        $resp = Invoke-WebRequest @params
-        $json = $resp.Content | ConvertFrom-Json
-
-        Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Green
-        Write-Host "Body  : $($resp.Content.Substring(0, [Math]::Min(500, $resp.Content.Length)))"
-
-        if ($Assert) {
-            & $Assert $json
-        }
-
-        $results[$Name] = "PASS"
-    }
-    catch {
-        Write-Host "FAILED: $_" -ForegroundColor Red
-        if ($_.Exception.Response) {
-            try {
-                $sr = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-                Write-Host "Response: $($sr.ReadToEnd())" -ForegroundColor Red
-            } catch {}
-        }
-        $results[$Name] = "FAIL"
-    }
-}
-
-# ============================================================
-# SECTION 1: Health checks for all endpoints
-# ============================================================
-Write-Host "`n=== HEALTH CHECKS ===" -ForegroundColor Magenta
-
-$publicEndpoints = @(
-    "content-scan", "scan-evidence", "scan-history", "scan-result",
-    "report-scan", "quick-scan", "wallet-share", "appeal", "claim",
-    "cache-cleanup"
-)
-$internalEndpoints = @(
-    "audit-run", "trustops-resolve-appeal", "trustops-verify-claim",
-    "outcome-update", "notify-send"
-)
-
-foreach ($ep in $publicEndpoints + $internalEndpoints) {
-    Invoke-Step -Name "Health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
-}
-
-# ============================================================
-# SECTION 2: Public endpoint functional tests
-# ============================================================
-Write-Host "`n=== PUBLIC ENDPOINT TESTS ===" -ForegroundColor Magenta
-
-# 1: POST content-scan
-Invoke-Step -Name "POST content-scan" -Method "POST" `
-    -Uri "$functionsBase/content-scan" `
-    -Body '{"url":"https://example.com"}' `
-    -Assert {
-        param($json)
-        if (-not $json.scan_id) { throw "Missing scan_id in response" }
-        $script:scanId = $json.scan_id
-        Write-Host "Captured scan_id: $script:scanId" -ForegroundColor Cyan
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
-
-# 2: GET scan-result
-if ($scanId) {
-    Invoke-Step -Name "GET scan-result" -Method "GET" `
-        -Uri "$functionsBase/scan-result?scanId=$scanId" `
-        -Assert {
-            param($json)
-            Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- GET scan-result --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-result"] = "SKIP"
-}
-
-# 3: GET scan-evidence
-if ($scanId) {
-    Invoke-Step -Name "GET scan-evidence" -Method "GET" `
-        -Uri "$functionsBase/scan-evidence?scanId=$scanId" `
-        -Assert {
-            param($json)
-            if ($json.evidence) {
-                Write-Host "Evidence count: $($json.evidence.Count)" -ForegroundColor Cyan
-            } else {
-                Write-Host "Evidence: (none or different format)" -ForegroundColor DarkYellow
-            }
-        }
-} else {
-    Write-Host "`n--- GET scan-evidence --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["GET scan-evidence"] = "SKIP"
-}
-
-# 4: GET scan-history
-Invoke-Step -Name "GET scan-history" -Method "GET" `
-    -Uri "$functionsBase/scan-history?device_id=$deviceId&limit=10" `
-    -Assert {
-        param($json)
-        Write-Host "Items: $($json.items.Count)  Total: $($json.total)" -ForegroundColor Cyan
-    }
-
-# 5: POST report-scan (use different device to avoid rate limit)
-$reportDeviceId = [guid]::NewGuid().ToString()
-$reportHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $reportDeviceId
-    "Content-Type"  = "application/json"
-}
-
-if ($scanId) {
-    $reportBody = @{
-        scan_id     = $scanId
-        url         = "https://example.com"
-        report_type = "safe"
-        description = "Automated test report"
-    } | ConvertTo-Json
-
-    Invoke-Step -Name "POST report-scan" -Method "POST" `
-        -Uri "$functionsBase/report-scan" `
-        -Body $reportBody `
-        -OverrideHeaders $reportHeaders `
-        -Assert {
-            param($json)
-            if (-not $json.report_id) { throw "Missing report_id" }
-            Write-Host "report_id: $($json.report_id)  total: $($json.total_reports)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- POST report-scan --- SKIPPED (no scan_id)" -ForegroundColor DarkYellow
-    $results["POST report-scan"] = "SKIP"
-}
-
-# 6: GET quick-scan
-Invoke-Step -Name "GET quick-scan" -Method "GET" `
-    -Uri "$functionsBase/quick-scan?url=https://example.com" `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)  Cache: $($json.cache_hit)" -ForegroundColor Cyan
-    }
-
-# 7: POST quick-scan
-Invoke-Step -Name "POST quick-scan" -Method "POST" `
-    -Uri "$functionsBase/quick-scan" `
-    -Body '{"input":"https://example.com","input_type":"url","share":false}' `
-    -Assert {
-        param($json)
-        Write-Host "Badge: $($json.badge)  Score: $($json.score)" -ForegroundColor Cyan
-    }
-
-# 8: POST wallet-share (create share link)
-$shareToken = $null
-Invoke-Step -Name "POST wallet-share" -Method "POST" `
-    -Uri "$functionsBase/wallet-share" `
-    -Body '{"url":"https://example.com","expiry_hours":24}' `
-    -Assert {
-        param($json)
-        if ($json.token) {
-            $script:shareToken = $json.token
-            Write-Host "Token: $($json.token)  Badge: $($json.badge)" -ForegroundColor Cyan
-        } else {
-            Write-Host "No token returned" -ForegroundColor DarkYellow
-        }
-    }
-
-# 9: GET wallet-share (resolve share link)
-if ($shareToken) {
-    Invoke-Step -Name "GET wallet-share" -Method "GET" `
-        -Uri "$functionsBase/wallet-share?token=$shareToken" `
-        -Assert {
-            param($json)
-            Write-Host "Domain: $($json.domain)  Badge: $($json.badge)  Views: $($json.view_count)" -ForegroundColor Cyan
-        }
-} else {
-    Write-Host "`n--- GET wallet-share --- SKIPPED (no share token)" -ForegroundColor DarkYellow
-    $results["GET wallet-share"] = "SKIP"
-}
-
-# 10: POST appeal
-$appealDeviceId = [guid]::NewGuid().ToString()
-$appealHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $appealDeviceId
-    "Content-Type"  = "application/json"
-}
-$appealBody = @{
-    scan_id     = $scanId
-    reason_type = "incorrect_classification"
-    message     = "Automated test appeal - this domain is safe"
-    contact     = "test@example.com"
-} | ConvertTo-Json
-
-Invoke-Step -Name "POST appeal" -Method "POST" `
-    -Uri "$functionsBase/appeal" `
-    -Body $appealBody `
-    -OverrideHeaders $appealHeaders `
-    -Assert {
-        param($json)
-        if ($json.appeal_id) {
-            Write-Host "appeal_id: $($json.appeal_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
-
-# 11: POST claim
-$claimDeviceId = [guid]::NewGuid().ToString()
-$claimHeaders = @{
-    "Authorization" = "Bearer $anonKey"
-    "apikey"        = $anonKey
-    "X-Device-Id"   = $claimDeviceId
-    "Content-Type"  = "application/json"
-}
-$claimBody = @{
-    domain       = "example.com"
-    contact      = "owner@example.com"
-    proof_method = "documentation"
-    message      = "Automated test claim"
-} | ConvertTo-Json
-
-Invoke-Step -Name "POST claim" -Method "POST" `
-    -Uri "$functionsBase/claim" `
-    -Body $claimBody `
-    -OverrideHeaders $claimHeaders `
-    -Assert {
-        param($json)
-        if ($json.claim_id) {
-            Write-Host "claim_id: $($json.claim_id)  status: $($json.status)" -ForegroundColor Cyan
-        }
-    }
-
-# 12: POST cache-cleanup (expects 403 - requires service-role auth)
-Write-Host "`n--- POST cache-cleanup (expect 403 forbidden) ---" -ForegroundColor Yellow
-try {
-    $resp = Invoke-WebRequest -Uri "$functionsBase/cache-cleanup" -Method "POST" `
-        -Headers $headers -Body '{}' -UseBasicParsing
-    Write-Host "Status: $($resp.StatusCode)" -ForegroundColor Red
-    Write-Host "UNEXPECTED: Should have returned 403" -ForegroundColor Red
-    $results["POST cache-cleanup (expect 403)"] = "FAIL"
-} catch {
-    $statusCode = $null
-    if ($_.Exception.Response) {
-        $statusCode = [int]$_.Exception.Response.StatusCode
-    }
-    if ($statusCode -eq 403) {
-        Write-Host "Status: 403 (expected - service-role required)" -ForegroundColor Green
-        $results["POST cache-cleanup (expect 403)"] = "PASS"
-    } else {
-        Write-Host "FAILED: $_ (expected 403)" -ForegroundColor Red
-        $results["POST cache-cleanup (expect 403)"] = "FAIL"
-    }
-}
-
-# ============================================================
-# SECTION 3: Internal endpoint health (service-role would be needed for full test)
-# ============================================================
-Write-Host "`n=== INTERNAL ENDPOINTS (health only with anon key) ===" -ForegroundColor Magenta
-
-foreach ($ep in $internalEndpoints) {
-    Invoke-Step -Name "Internal health: $ep" -Method "GET" -Uri "$functionsBase/$($ep)?health"
-}
-
-# ============================================================
-# SUMMARY
-# ============================================================
-Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host "  SUMMARY" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-$pass = 0; $fail = 0; $skip = 0
-foreach ($kv in $results.GetEnumerator()) {
-    $color = switch ($kv.Value) {
-        "PASS" { "Green" }
-        "FAIL" { "Red" }
-        default { "DarkYellow" }
-    }
-    Write-Host ("  [{0}] {1}" -f $kv.Value, $kv.Key) -ForegroundColor $color
-    switch ($kv.Value) { "PASS" { $pass++ } "FAIL" { $fail++ } default { $skip++ } }
-}
-
-Write-Host "`nTotal: $pass passed, $fail failed, $skip skipped" -ForegroundColor Cyan
-
 if ($fail -gt 0) { exit 1 }
