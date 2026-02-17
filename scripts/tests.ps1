@@ -27,9 +27,11 @@ function Load-DotEnvFile([string]$Path) {
       $val = $val.Substring(1, $val.Length - 2)
     }
 
-    # Set only if not already set in the session
-    if (-not [string]::IsNullOrWhiteSpace($key) -and -not $env:$key) {
-      [Environment]::SetEnvironmentVariable($key, $val, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($key)) {
+      $existing = [Environment]::GetEnvironmentVariable($key, "Process")
+      if (-not $existing) {
+        [Environment]::SetEnvironmentVariable($key, $val, "Process")
+      }
     }
   }
 }
@@ -57,7 +59,6 @@ if (-not $functionsBase) { Write-Error "Missing env var FUNCTIONS_BASE_URL or EX
 
 $functionsBase = $functionsBase.TrimEnd("/")
 
-# Basic sanity check (legacy anon JWT usually starts with eyJ)
 if (-not $anonKey.StartsWith("eyJ")) {
   Write-Warning "ANON key does not start with 'eyJ'. Make sure you used the 'anon public' JWT key (Legacy anon) from Supabase."
 }
@@ -158,7 +159,7 @@ Write-Host "Functions base: $functionsBase" -ForegroundColor DarkGray
 Write-Host "Device-Id: $deviceId" -ForegroundColor DarkGray
 
 # ----------------------------
-# 0) Health checks
+# 0) Health checks (FIXED URL interpolation)
 # ----------------------------
 $healthEndpoints = @(
   "content-scan",
@@ -173,7 +174,8 @@ $healthEndpoints = @(
 )
 
 foreach ($ep in $healthEndpoints) {
-  Run-Step -Name "Health: $ep" -Method "GET" -Url "$functionsBase/$ep?health=1" | Out-Null
+  # IMPORTANT: use $($ep) so PowerShell doesn't treat "?health" as part of a variable name
+  Run-Step -Name "Health: $ep" -Method "GET" -Url "$functionsBase/$($ep)?health=1" | Out-Null
 }
 
 # ----------------------------
@@ -182,15 +184,15 @@ foreach ($ep in $healthEndpoints) {
 $scanId = $null
 $targetUrl = "https://example.com"
 
-$r1 = Run-Step -Name "POST content-scan" -Method "POST" -Url "$functionsBase/content-scan" -Body @{
+Run-Step -Name "POST content-scan" -Method "POST" -Url "$functionsBase/content-scan" -Body @{
   url = $targetUrl
 } -OnOk {
   param($json)
   if ($json.scan_id) { $script:scanId = $json.scan_id }
   Write-Host "scan_id: $($script:scanId)" -ForegroundColor Cyan
-}
+} | Out-Null
 
-# 2) scan-result/evidence/history (only if scan_id exists)
+# 2) scan-result/evidence/history
 if ($scanId) {
   Run-Step -Name "GET scan-result" -Method "GET" -Url "$functionsBase/scan-result?scanId=$scanId" | Out-Null
   Run-Step -Name "GET scan-evidence" -Method "GET" -Url "$functionsBase/scan-evidence?scanId=$scanId" | Out-Null
@@ -215,14 +217,14 @@ Run-Step -Name "POST quick-scan" -Method "POST" -Url "$functionsBase/quick-scan"
 
 # 5) wallet-share (POST to get token, then GET)
 $shareToken = $null
-$rws = Run-Step -Name "POST wallet-share" -Method "POST" -Url "$functionsBase/wallet-share" -Body @{
+Run-Step -Name "POST wallet-share" -Method "POST" -Url "$functionsBase/wallet-share" -Body @{
   url = $targetUrl
   expiry_hours = 24
 } -OnOk {
   param($json)
   if ($json.token) { $script:shareToken = $json.token }
   Write-Host "token: $($script:shareToken)" -ForegroundColor Cyan
-}
+} | Out-Null
 
 if ($shareToken) {
   Run-Step -Name "GET wallet-share" -Method "GET" -Url "$functionsBase/wallet-share?token=$shareToken" | Out-Null
