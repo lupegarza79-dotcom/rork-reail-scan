@@ -212,7 +212,15 @@ Run-Step -Name "POST report-scan" -Method "POST" -Url "$functionsBase/report-sca
 } | Out-Null
 
 # 4) quick-scan (GET + POST)
-Run-Step -Name "GET quick-scan" -Method "GET" -Url "$functionsBase/quick-scan?url=$([Uri]::EscapeDataString($targetUrl))" | Out-Null
+Run-Step -Name "GET quick-scan" -Method "GET" -Url "$functionsBase/quick-scan?url=$([Uri]::EscapeDataString($targetUrl))" -OnOk {
+  param($json)
+  if ($json.trust -and $json.trust.reason_codes) {
+    Write-Host "  reason_codes: $($json.trust.reason_codes -join ', ')" -ForegroundColor DarkGray
+  }
+  if ($json.providers.urlhaus) {
+    Write-Host "  urlhaus verdict: $($json.providers.urlhaus.verdict)" -ForegroundColor DarkGray
+  }
+} | Out-Null
 Run-Step -Name "POST quick-scan" -Method "POST" -Url "$functionsBase/quick-scan" -Body @{ url = $targetUrl } | Out-Null
 
 # 5) wallet-share (POST to get token, then GET)
@@ -248,6 +256,64 @@ Run-Step -Name "POST claim" -Method "POST" -Url "$functionsBase/claim" -Body @{
   message = "This is a test claim message."
   evidence_links = @("https://example.com/evidence")
 } | Out-Null
+
+# ----------------------------
+# 8) Smoke: quick-scan rate-limit (fire many requests)
+# ----------------------------
+Write-Host "`n=== Smoke: rate-limit shape ==" -ForegroundColor Cyan
+Write-Host "Sending quick-scan to verify 429 shape is stable..." -ForegroundColor DarkGray
+$rateLimitHit = $false
+for ($i = 0; $i -lt 5; $i++) {
+  $r = Invoke-JsonRequest -Method "GET" -Url "$functionsBase/quick-scan?url=$([Uri]::EscapeDataString($targetUrl))"
+  if ($r.Status -eq 429) {
+    $rateLimitHit = $true
+    if ($r.Json.error_code -eq "rate_limit_exceeded" -and $r.Json.retry_after_seconds -ne $null -and $r.Json.rate_limit -ne $null) {
+      $results["429 shape valid"] = "PASS"
+      Write-Host "  429 JSON shape verified: error_code, retry_after_seconds, rate_limit present" -ForegroundColor Green
+    } else {
+      $results["429 shape valid"] = "FAIL"
+      Write-Host "  429 JSON shape invalid" -ForegroundColor Red
+    }
+    break
+  }
+}
+if (-not $rateLimitHit) {
+  $results["429 shape valid"] = "SKIP"
+  Write-Host "  Rate limit not hit in 5 requests (OK for low-volume test)" -ForegroundColor DarkYellow
+}
+
+# ----------------------------
+# 9) Smoke: provider failure fallback
+# ----------------------------
+Write-Host "`n=== Smoke: provider fallback ==" -ForegroundColor Cyan
+$maliciousUrl = "https://this-definitely-does-not-exist-xyz123.invalid"
+$r = Invoke-JsonRequest -Method "POST" -Url "$functionsBase/quick-scan" -Body @{ url = $maliciousUrl }
+if ($r.Status -ge 200 -and $r.Status -lt 300) {
+  $results["Provider fallback"] = "PASS"
+  Write-Host "  quick-scan returned OK even with unreachable URL (fail-soft working)" -ForegroundColor Green
+} elseif ($r.Status -eq 429) {
+  $results["Provider fallback"] = "SKIP"
+  Write-Host "  Rate limited, skipping fallback test" -ForegroundColor DarkYellow
+} else {
+  $results["Provider fallback"] = "FAIL"
+  Write-Host "  Expected 2xx but got $($r.Status)" -ForegroundColor Red
+}
+
+# ----------------------------
+# 10) Smoke: share token path
+# ----------------------------
+if ($shareToken) {
+  $r = Invoke-JsonRequest -Method "GET" -Url "$functionsBase/wallet-share?token=$shareToken"
+  if ($r.Status -eq 200 -and $r.Json.ok -eq $true) {
+    $results["Share token resolve"] = "PASS"
+    Write-Host "`n=== Share token resolve ==" -ForegroundColor Cyan
+    Write-Host "  Token resolved: badge=$($r.Json.badge) score=$($r.Json.score)" -ForegroundColor Green
+  } else {
+    $results["Share token resolve"] = "FAIL"
+  }
+} else {
+  $results["Share token resolve"] = "SKIP"
+}
 
 # ----------------------------
 # Summary

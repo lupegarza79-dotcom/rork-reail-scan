@@ -31,6 +31,8 @@ supabase secrets set WHOIS_API_KEY=<whois_api_key>
 supabase secrets set CACHE_TTL_HOURS=24
 supabase secrets set GOOGLE_SAFE_BROWSING_API_KEY=<key>
 supabase secrets set VIRUSTOTAL_API_KEY=<key>
+supabase secrets set URLSCAN_API_KEY=<key>
+supabase secrets set GOOGLE_WEBRISK_API_KEY=<key>
 supabase secrets set VERBOSE_LOGGING=true
 ```
 
@@ -45,6 +47,8 @@ supabase secrets set VERBOSE_LOGGING=true
 | `CACHE_TTL_HOURS` | Optional | Cache TTL in hours (default: 24) |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Optional | Google Safe Browsing v4 key |
 | `VIRUSTOTAL_API_KEY` | Optional | VirusTotal API key |
+| `URLSCAN_API_KEY` | Optional | urlscan.io API key for dynamic behavior analysis |
+| `GOOGLE_WEBRISK_API_KEY` | Optional | Google Web Risk API key (used by quick-scan) |
 | `VERBOSE_LOGGING` | Optional | Set `"true"` for detailed logs |
 
 ## Route Mapping

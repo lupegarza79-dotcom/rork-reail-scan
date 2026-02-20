@@ -6,6 +6,8 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { analyzeUrlscanIo, analyzeUrlhaus, analyzeOpenPhish } from "../_shared/providers.ts";
+import { generateTraceId } from "../_shared/telemetry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,7 +29,10 @@ type EvidenceProvider =
   | "google_safe_browsing"
   | "virustotal"
   | "reputation_reports"
-  | "content_intel";
+  | "content_intel"
+  | "urlscan_io"
+  | "urlhaus"
+  | "openphish";
 
 const SCAM_KEYWORDS = [
   "urgent", "verify", "suspended", "investment", "crypto", "giveaway",
@@ -1168,6 +1173,7 @@ serve(async (req: Request) => {
             SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY"),
             GOOGLE_SAFE_BROWSING_API_KEY: !!Deno.env.get("GOOGLE_SAFE_BROWSING_API_KEY"),
             VIRUSTOTAL_API_KEY: !!Deno.env.get("VIRUSTOTAL_API_KEY"),
+            URLSCAN_API_KEY: !!Deno.env.get("URLSCAN_API_KEY"),
             CACHE_TTL_HOURS: Deno.env.get("CACHE_TTL_HOURS") || "24",
           },
           verbose: VERBOSE,
@@ -1297,6 +1303,8 @@ serve(async (req: Request) => {
 
     const providerTelemetry: Record<string, unknown>[] = [];
 
+    const traceId = generateTraceId();
+
     const [
       linkIntel,
       domainIntel,
@@ -1305,6 +1313,9 @@ serve(async (req: Request) => {
       virusTotal,
       reputation,
       contentIntel,
+      urlscanResult,
+      urlhausResult,
+      openphishResult,
     ] = await Promise.all([
       runProvider(
         "link_intel",
@@ -1364,9 +1375,30 @@ serve(async (req: Request) => {
         deviceId,
         ip,
       ),
+      runProvider(
+        "urlscan_io",
+        () => analyzeUrlscanIo(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "urlhaus",
+        () => analyzeUrlhaus(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
+      runProvider(
+        "openphish",
+        () => analyzeOpenPhish(url),
+        providerTelemetry,
+        deviceId,
+        ip,
+      ),
     ]);
 
-    const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel];
+    const evidence: EvidenceItem[] = [linkIntel, domainIntel, patternMatch, googleSB, virusTotal, reputation, contentIntel, urlscanResult, urlhausResult, openphishResult];
 
     // ---- FAIRNESS GUARDRAILS ----
     const rawResult = calculateScore(evidence);
@@ -1432,6 +1464,7 @@ serve(async (req: Request) => {
 
     void logTelemetry(supabase, [
       {
+        trace_id: traceId,
         endpoint: ENDPOINT,
         event_type: "scan",
         device_id: deviceId,
@@ -1444,7 +1477,7 @@ serve(async (req: Request) => {
         latency_ms: Date.now() - startTime,
         success: true,
       },
-      ...providerTelemetry,
+      ...providerTelemetry.map(t => ({ ...t, trace_id: traceId })),
     ]);
 
     const evidenceRows = evidence.map((e) => buildEvidenceRow(scanResult.id, e));
@@ -1499,6 +1532,7 @@ serve(async (req: Request) => {
           latency_ms: Date.now() - startTime,
           cache_hit: null,
           error_code: (error as any)?.code ?? "internal_error",
+          trace_id: "error-" + crypto.randomUUID(),
         });
       }
     } catch (telemetryError) {

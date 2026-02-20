@@ -5,6 +5,9 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { checkRateLimit, rateLimitResponse } from "../_shared/rate-limit.ts";
+import { getClientIp } from "../_shared/auth.ts";
+import { logTelemetry, generateTraceId } from "../_shared/telemetry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,6 +34,8 @@ function extractDomain(url: string): string {
 }
 
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
+const REPORT_RATE_LIMIT = 20;
+const RATE_LIMIT_WINDOW_MINUTES = 60;
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -95,7 +100,15 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("PROJECT_URL")!;
     const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const ip = getClientIp(req);
+    const traceId = generateTraceId();
     const domain = extractDomain(body.url);
+
+    const rateCheck = await checkRateLimit(supabase, ENDPOINT, deviceId, ip, REPORT_RATE_LIMIT, RATE_LIMIT_WINDOW_MINUTES);
+    if (!rateCheck.allowed) {
+      void logTelemetry(supabase, { trace_id: traceId, endpoint: ENDPOINT, event_type: "report", device_id: deviceId, ip, status: "rate_limited", latency_ms: 0 });
+      return rateLimitResponse(ENDPOINT, rateCheck);
+    }
 
     const { data: existingReport } = await supabase
       .from("scan_reports")
