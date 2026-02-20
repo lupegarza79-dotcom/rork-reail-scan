@@ -154,7 +154,7 @@ export default function HistoryScreen() {
 
   const onOpen = (it: ScanHistoryItem) => {
     const payload = encodeURIComponent(JSON.stringify(it));
-    router.push(`/result?payload=${payload}`);
+    router.push(`/result?payload=${payload}` as any);
   };
 
   const onShare = async (it: ScanHistoryItem) => {

@@ -199,7 +199,7 @@ export default function VerifyPlusScreen() {
             </Text>
 
             <Pressable
-              onPress={() => router.push('/claim')}
+              onPress={() => router.push('/claim' as any)}
               style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
             >
               <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.verified}15` }]}>
@@ -213,7 +213,7 @@ export default function VerifyPlusScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => router.push('/appeal')}
+              onPress={() => router.push('/appeal' as any)}
               style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
             >
               <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.unverified}15` }]}>
@@ -227,7 +227,7 @@ export default function VerifyPlusScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => router.push('/appeal')}
+              onPress={() => router.push('/appeal' as any)}
               style={({ pressed }) => [styles.fairnessCard, pressed && styles.fairnessCardPressed]}
             >
               <View style={[styles.fairnessIcon, { backgroundColor: `${Colors.highRisk}15` }]}>

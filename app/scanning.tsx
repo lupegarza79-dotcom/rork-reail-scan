@@ -151,11 +151,11 @@ export default function ScanningScreen() {
         // Route to result - check for id (canonical) or scanId
         const scanIdToUse = result?.id || result?.scanId;
         if (scanIdToUse) {
-          router.replace(`/result?scanId=${encodeURIComponent(scanIdToUse)}`);
+          router.replace(`/result?scanId=${encodeURIComponent(scanIdToUse)}` as any);
         } else {
           // fallback: pass payload directly (encoded JSON)
           const encoded = encodeURIComponent(JSON.stringify(result ?? {}));
-          router.replace(`/result?payload=${encoded}`);
+          router.replace(`/result?payload=${encoded}` as any);
         }
       } catch (e: any) {
         setError(e?.message || "Scan failed. Please try again.");

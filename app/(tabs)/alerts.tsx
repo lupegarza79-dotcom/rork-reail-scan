@@ -145,7 +145,7 @@ export default function AlertsScreen() {
     setAlerts(merged);
 
     if (a.scanId) {
-      router.push(`/result?scanId=${encodeURIComponent(a.scanId)}`);
+      router.push(`/result?scanId=${encodeURIComponent(a.scanId)}` as any);
       return;
     }
 
@@ -159,7 +159,7 @@ export default function AlertsScreen() {
         timestamp: Date.now(),
       })
     );
-    router.push(`/result?payload=${payload}`);
+    router.push(`/result?payload=${payload}` as any);
   };
 
   const onShare = async (a: ReailAlert) => {
@@ -317,7 +317,7 @@ export default function AlertsScreen() {
       <View style={styles.contentPadding}>
         <View style={styles.watchlistRow}>
           <Pressable 
-            onPress={() => router.push("/watchlist")} 
+            onPress={() => router.push("/watchlist" as any)} 
             style={({ pressed }) => [styles.watchlistBtn, pressed && styles.watchlistBtnPressed]}
           >
             <Eye size={16} color={Colors.primary} strokeWidth={2} />

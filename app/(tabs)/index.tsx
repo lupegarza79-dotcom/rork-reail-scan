@@ -94,9 +94,9 @@ export default function ScanHomeScreen() {
     Keyboard.dismiss();
     if (!cleanInput) return;
     if (inputMode === "link") {
-      router.push(`/scanning?url=${encodeURIComponent(cleanInput)}`);
+      router.push(`/scanning?url=${encodeURIComponent(cleanInput)}` as any);
     } else if (inputMode === "text") {
-      router.push(`/scanning?contentText=${encodeURIComponent(cleanInput)}`);
+      router.push(`/scanning?contentText=${encodeURIComponent(cleanInput)}` as any);
     }
   };
 
@@ -111,7 +111,7 @@ export default function ScanHomeScreen() {
       if (res.canceled) return;
       const uri = res.assets?.[0]?.uri;
       if (!uri) return;
-      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}`);
+      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}` as any);
     } catch {
       console.log("[Scan] Upload failed");
     }
@@ -533,7 +533,7 @@ export default function ScanHomeScreen() {
         )}
 
         <Pressable
-          onPress={() => router.push("/tools")}
+          onPress={() => router.push("/tools" as any)}
           style={({ pressed }) => [
             styles.moreLink,
             pressed && styles.moreLinkPressed,

@@ -385,7 +385,7 @@ export default function ResultScreen() {
     if (!result.url) return;
     try { await WebBrowser.openBrowserAsync(result.url); } catch { console.log("[Browser] Failed to open"); }
   };
-  const onAddToWatchlist = () => { router.push("/watchlist"); };
+  const onAddToWatchlist = () => { router.push("/watchlist" as any); };
   const onStartMoneyCase = () => {
     trackEvent('money_case_started', { domain });
     router.push(`/money-case?domain=${encodeURIComponent(domain)}&url=${encodeURIComponent(result.url || '')}&scanId=${encodeURIComponent(result.scanId || '')}` as any);

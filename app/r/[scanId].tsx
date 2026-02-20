@@ -35,7 +35,7 @@ export default function WebResultFallback() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       window.location.href = `${APP_SCHEME}://result?scanId=${encodeURIComponent(id)}`;
     } else {
-      router.push({ pathname: "/result", params: { scanId: id } });
+      router.push({ pathname: "/result", params: { scanId: id } } as any);
     }
   };
 

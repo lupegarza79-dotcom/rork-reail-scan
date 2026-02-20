@@ -103,13 +103,13 @@ function DeepLinkHandler() {
     
     if (route.type === 'result') {
       console.log('[DeepLink] Navigating to result with scanId:', route.scanId);
-      router.push({ pathname: '/result', params: { scanId: route.scanId } });
+      router.push({ pathname: '/result', params: { scanId: route.scanId } } as any);
       return;
     }
 
     if (route.type === 'scan') {
       console.log('[DeepLink] Share-to-Scan detected, URL:', route.url);
-      router.push({ pathname: '/scanning', params: { url: route.url } });
+      router.push({ pathname: '/scanning', params: { url: route.url } } as any);
     }
   }, [router]);
 

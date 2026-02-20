@@ -12,7 +12,7 @@ export default function ToolsScreen() {
   const router = useRouter();
 
   const onShareToScan = () => {
-    router.push("/share-tutorial");
+    router.push("/share-tutorial" as any);
   };
 
   const onUploadScreenshot = async () => {
@@ -29,7 +29,7 @@ export default function ToolsScreen() {
       const uri = res.assets?.[0]?.uri;
       if (!uri) return;
 
-      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}`);
+      router.push(`/scanning?mediaUri=${encodeURIComponent(uri)}` as any);
     } catch {
       // ignore
     }

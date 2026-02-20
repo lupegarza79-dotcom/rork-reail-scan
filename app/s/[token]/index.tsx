@@ -142,7 +142,7 @@ export default function ShareLinkScreen() {
         router.push({
           pathname: '/s/[token]/refund',
           params: { token: token || '', caseId: response.case_id, locale: wizardData.locale },
-        });
+        } as any);
       }
     },
   });
@@ -657,7 +657,7 @@ export default function ShareLinkScreen() {
 
             <TouchableOpacity
               style={styles.appealLink}
-              onPress={() => router.push(`/appeal?token=${encodeURIComponent(token || '')}`)}
+              onPress={() => router.push(`/appeal?token=${encodeURIComponent(token || '')}` as any)}
               activeOpacity={0.7}
             >
               <Text style={styles.appealLinkText}>
