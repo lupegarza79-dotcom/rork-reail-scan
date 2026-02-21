@@ -59,7 +59,7 @@ function Invoke-SbRepair {
         Write-Host "`n[Supabase] Listing migrations to identify which to repair..." -ForegroundColor Cyan
         npx supabase migration list --linked
         Write-Host "`nTo baseline a migration, re-run with:"
-        Write-Host "  pwsh scripts/supabase.ps1 -Action repair -MigrationVersion <VERSION>" -ForegroundColor Yellow
+        Write-Host "  pwsh scripts/supabase.ps1 -Action repair -MigrationVersion VERSION" -ForegroundColor Yellow
         Write-Host "`nExample: pwsh scripts/supabase.ps1 -Action repair -MigrationVersion 20240203" -ForegroundColor DarkCyan
         return
     }
@@ -74,7 +74,7 @@ function Invoke-SbPush {
     npx supabase db push --linked
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n  db push failed. If tables already exist, baseline with:" -ForegroundColor Red
-        Write-Host "    pwsh scripts/supabase.ps1 -Action repair -MigrationVersion <VERSION>" -ForegroundColor Yellow
+        Write-Host "    pwsh scripts/supabase.ps1 -Action repair -MigrationVersion VERSION" -ForegroundColor Yellow
         Write-Host "  Then re-run: pwsh scripts/supabase.ps1 -Action push" -ForegroundColor Yellow
         exit 1
     }

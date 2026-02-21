@@ -20,7 +20,7 @@ serve(async (req) => {
 
   const requestUrl = new URL(req.url);
 
-  if (requestUrl.searchParams.get("health") !== null) {
+  if (requestUrl.searchParams.get("health") !== null || requestUrl.pathname.endsWith("/health")) {
     return jsonResponse({
       ok: true,
       endpoint: ENDPOINT,
