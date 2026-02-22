@@ -233,4 +233,4 @@ project-root/
   utils/                  # Utility modules
   app.json                # Expo configuration
   package.json            # Dependencies and scripts (npm, no Bun)
-```
+test ci lock```
