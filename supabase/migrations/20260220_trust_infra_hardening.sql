@@ -2,6 +2,13 @@
 -- Purpose: telemetry trace_id + metadata, cache indexes, new provider enum values,
 --          cleanup RPCs, dashboard views. All additive + idempotent.
 
+-- 0) Drift repair: ensure scan_cache exists (required by cache indexes + cleanup RPC)
+CREATE TABLE IF NOT EXISTS scan_cache (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 -- 1) Telemetry: add trace_id + metadata columns
 ALTER TABLE scan_telemetry_events ADD COLUMN IF NOT EXISTS trace_id TEXT;
 ALTER TABLE scan_telemetry_events ADD COLUMN IF NOT EXISTS metadata JSONB;
