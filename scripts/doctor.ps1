@@ -1,5 +1,4 @@
-﻿@'
-param(
+﻿param(
   [ValidateSet("local","ci")] [string]$Mode = "local",
   [string]$ProjectRef = "favpzctusdjnnoyoabrz",
   [string]$Base = "",
@@ -159,6 +158,32 @@ if($Mode -eq "ci" -or $SkipRateLimit){
   }
 }
 
+
+# --- GitHub Step Summary (CI UI) ---
+try {
+  if ($env:GITHUB_STEP_SUMMARY) {
+    $md = @()
+    $md += "# REAiL Doctor Gate"
+    $md += ""
+    $md += "- ProjectRef: **$ProjectRef**"
+    $md += "- Base: **$Base**"
+    $md += "- Mode: **$Mode**"
+    $md += ""
+    $md += "## Results"
+    $md += ""
+    $md += "```"
+    $md += "=== DOCTOR SUMMARY ==="
+    $md += ($results | Out-String).TrimEnd()
+    $md += ""
+    $md += ("RESULT: " + ($(if($allPass){"PASS"}else{"FAIL"})))
+    $md += "```"
+    $md += ""
+    Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($md -join "`n") -Encoding UTF8
+  }
+} catch {
+  # best-effort; never fail the run due to summary
+}
+# --- end summary ---
 "`n=== DOCTOR SUMMARY ==="
 $results | ForEach-Object { $_ }
 
@@ -169,4 +194,3 @@ if($allPass){
   "`nRESULT: FAIL"
   exit 1
 }
-'@ | Set-Content -Encoding UTF8 .\scripts\doctor.ps1
