@@ -162,23 +162,18 @@ if($Mode -eq "ci" -or $SkipRateLimit){
 # --- GitHub Step Summary (CI UI) ---
 try {
   if ($env:GITHUB_STEP_SUMMARY) {
-    $md = @()
-    $md += "# REAiL Doctor Gate"
-    $md += ""
-    $md += "- ProjectRef: **$ProjectRef**"
-    $md += "- Base: **$Base**"
-    $md += "- Mode: **$Mode**"
-    $md += ""
-    $md += "## Results"
-    $md += ""
-    $md += "```"
-    $md += "=== DOCTOR SUMMARY ==="
-    $md += ($results | Out-String).TrimEnd()
-    $md += ""
-    $md += ("RESULT: " + ($(if($allPass){"PASS"}else{"FAIL"})))
-    $md += "```"
-    $md += ""
-    Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($md -join "`n") -Encoding UTF8
+    $resText = ($results | Out-String).TrimEnd()
+    $summary = @"
+# REAiL Doctor Gate
+
+- ProjectRef: **$ProjectRef**
+- Base: **$Base**
+- Mode: **$Mode**
+
+## Results
+
+"@
+    Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary -Encoding UTF8
   }
 } catch {
   # best-effort; never fail the run due to summary
