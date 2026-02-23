@@ -61,7 +61,7 @@ try{
   } else {
     $results += Write-Row "Functions list" "PASS" "Core 7 present"
   }
-}catch{
+} catch{
   $results += Write-Row "Functions list" "FAIL" "npx supabase functions list failed"
   $results += ($_ | Out-String)
   $allPass = $false
@@ -88,7 +88,7 @@ foreach($f in $healthFns){
       $results += Write-Row ("Health "+$f) "FAIL" ("HTTP "+$code+" ok="+$ok)
       $allPass = $false
     }
-  }catch{
+  } catch{
     $results += Write-Row ("Health "+$f) "FAIL" "Exception"
     $results += ($_ | Out-String)
     $allPass = $false
@@ -110,13 +110,15 @@ try{
       $allPass = $false
     }
   }
-}catch{
+} catch{
   $results += Write-Row "tests.ps1" "FAIL" "Exception"
   $results += ($_ | Out-String)
   $allPass = $false
 }
 
-# 4) Rate-limit 429 shape (local only by default)
+}
+
+ (local only by default)
 if($Mode -eq "ci" -or $SkipRateLimit){
   $results += Write-Row "429 shape" "SKIP" "Mode=$Mode SkipRateLimit=$SkipRateLimit"
 } else {
@@ -151,7 +153,7 @@ if($Mode -eq "ci" -or $SkipRateLimit){
       $results += Write-Row "429 shape" "FAIL" "No 429 in 200 requests"
       $allPass = $false
     }
-  }catch{
+  } catch{
     $results += Write-Row "429 shape" "FAIL" "Exception"
     $results += ($_ | Out-String)
     $allPass = $false
@@ -162,23 +164,18 @@ if($Mode -eq "ci" -or $SkipRateLimit){
 # --- GitHub Step Summary (CI UI) ---
 try {
   if ($env:GITHUB_STEP_SUMMARY) {
-    $md = @()
-    $md += "# REAiL Doctor Gate"
-    $md += ""
-    $md += "- ProjectRef: **$ProjectRef**"
-    $md += "- Base: **$Base**"
-    $md += "- Mode: **$Mode**"
-    $md += ""
-    $md += "## Results"
-    $md += ""
-    $md += "```"
-    $md += "=== DOCTOR SUMMARY ==="
-    $md += ($results | Out-String).TrimEnd()
-    $md += ""
-    $md += ("RESULT: " + ($(if($allPass){"PASS"}else{"FAIL"})))
-    $md += "```"
-    $md += ""
-    Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($md -join "`n") -Encoding UTF8
+    $resText = ($results | Out-String).TrimEnd()
+    $summary = @"
+# REAiL Doctor Gate
+
+- ProjectRef: **$ProjectRef**
+- Base: **$Base**
+- Mode: **$Mode**
+
+## Results
+
+"@
+    Set-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary -Encoding UTF8
   }
 } catch {
   # best-effort; never fail the run due to summary
