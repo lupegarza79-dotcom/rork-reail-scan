@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,10 +11,13 @@ import {
   Modal,
   ScrollView,
   Switch,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createShareLink } from "@/utils/walletShare";
 import {
   Lock,
   Shield,
@@ -90,15 +93,35 @@ export default function ScanHomeScreen() {
     }
   };
 
-  const onScanNow = () => {
+  const [isShieldLoading, setIsShieldLoading] = useState(false);
+
+  const onScanNow = useCallback(async () => {
     Keyboard.dismiss();
     if (!cleanInput) return;
+
     if (inputMode === "link") {
+      setIsShieldLoading(true);
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+      try {
+        console.log('[Home] Creating share link for Shield flow:', cleanInput);
+        const result = await createShareLink(cleanInput);
+        if (result?.token) {
+          console.log('[Home] Shield redirect to /s/', result.token);
+          router.push(`/s/${result.token}` as any);
+          return;
+        }
+      } catch (err) {
+        console.log('[Home] Shield flow failed, falling back:', err);
+      } finally {
+        setIsShieldLoading(false);
+      }
       router.push(`/scanning?url=${encodeURIComponent(cleanInput)}` as any);
     } else if (inputMode === "text") {
       router.push(`/scanning?contentText=${encodeURIComponent(cleanInput)}` as any);
     }
-  };
+  }, [cleanInput, inputMode, router]);
 
   const onUploadFile = async () => {
     try {
@@ -233,14 +256,20 @@ export default function ScanHomeScreen() {
                 onPress={onScanNow}
                 style={({ pressed }) => [
                   styles.scanBtn,
-                  !cleanInput && styles.scanBtnDisabled,
-                  pressed && cleanInput && styles.scanBtnPressed,
+                  (!cleanInput || isShieldLoading) && styles.scanBtnDisabled,
+                  pressed && cleanInput && !isShieldLoading && styles.scanBtnPressed,
                 ]}
-                disabled={!cleanInput}
+                disabled={!cleanInput || isShieldLoading}
                 testID="scan-btn"
               >
-                <Shield size={18} color="white" strokeWidth={2.5} />
-                <Text style={styles.scanText}>SCAN NOW</Text>
+                {isShieldLoading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Shield size={18} color="white" strokeWidth={2.5} />
+                )}
+                <Text style={styles.scanText}>
+                  {isShieldLoading ? 'SCANNING...' : 'SCAN NOW'}
+                </Text>
               </Pressable>
 
               <View style={styles.altActionsRow}>

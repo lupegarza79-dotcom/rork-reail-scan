@@ -1,82 +1,217 @@
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Share, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useMemo, useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Share,
+  ScrollView,
+} from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion, Copy, Check, Share2, ChevronDown, ChevronUp, ArrowLeft, Clock, Mail, AlertTriangle as AlertTriangleIcon, FileCheck, Scale } from 'lucide-react-native';
-import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Copy,
+  Check,
+  Share2,
+  Mail,
+  Clock,
+  AlertTriangle,
+  Scale,
+  FileCheck,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
-import Logo from '@/components/Logo';
-import { resolveShareLink, WalletShareData } from '@/utils/walletShare';
-import { fetchMoneyCase } from '@/utils/api';
-import type { BadgeType, RailPack, MoneyCaseFullResponse } from '@/types/scan';
 
-const BADGE_MINI: Record<BadgeType | 'UNKNOWN', { color: string; bg: string; Icon: typeof Shield }> = {
-  VERIFIED: { color: Colors.verified, bg: Colors.verifiedBg, Icon: ShieldCheck },
-  UNVERIFIED: { color: Colors.unverified, bg: Colors.unverifiedBg, Icon: ShieldQuestion },
-  HIGH_RISK: { color: Colors.highRisk, bg: Colors.highRiskBg, Icon: ShieldAlert },
-  UNKNOWN: { color: Colors.textSecondary, bg: Colors.backgroundTertiary, Icon: Shield },
+const TEMPLATES = {
+  en: {
+    refund: `Subject: Refund Request — Order/Transaction [DATE]
+
+Dear Customer Support,
+
+I am writing to formally request a full refund for a transaction made on [DATE] in the amount of [AMOUNT].
+
+After review, I believe this charge is unauthorized / the product was not as described / I did not receive what was promised.
+
+I request that this refund be processed within 5 business days. If I do not receive confirmation, I will escalate this matter to my bank/payment provider and relevant consumer protection agencies.
+
+Please confirm receipt of this request.
+
+Sincerely,
+[YOUR NAME]`,
+
+    followup: `Subject: Follow-Up — Refund Request from [DATE]
+
+Dear Customer Support,
+
+I am following up on my refund request submitted on [DATE]. I have not received a response or confirmation of my refund.
+
+Please process this refund immediately. If I do not hear back within 48 hours, I will proceed with a formal dispute through my payment provider.
+
+Regards,
+[YOUR NAME]`,
+
+    finalNotice: `Subject: FINAL NOTICE — Unresolved Refund Request
+
+Dear Customer Support,
+
+This is my final notice regarding my refund request originally submitted on [DATE]. Despite previous attempts, this matter remains unresolved.
+
+I am now escalating this dispute. I will:
+1. File a chargeback/dispute with my bank or payment provider
+2. Report this to the FTC (reportfraud.ftc.gov) or equivalent agency
+3. File a complaint with the Better Business Bureau (BBB)
+
+You have 48 hours to resolve this before I proceed.
+
+[YOUR NAME]`,
+
+    escalation: [
+      '1. File a chargeback or dispute with your bank/card issuer',
+      '2. Report to FTC at reportfraud.ftc.gov',
+      '3. File BBB complaint at bbb.org',
+      '4. Report to your state Attorney General',
+      '5. For PayPal/Venmo/CashApp: open a dispute in the app',
+      '6. For crypto: report to IC3.gov (FBI Internet Crime)',
+      '7. Document everything: screenshots, emails, transaction IDs',
+    ],
+
+    evidence: [
+      '☐ Screenshot of the original offer/listing',
+      '☐ Transaction receipt or bank statement',
+      '☐ Screenshots of all communications',
+      '☐ URL of the website/listing',
+      '☐ Date and amount of transaction',
+      '☐ Payment method used',
+      '☐ Any confirmation emails received',
+    ],
+  },
+  es: {
+    refund: `Asunto: Solicitud de Reembolso — Orden/Transacción [FECHA]
+
+Estimado Servicio al Cliente,
+
+Escribo para solicitar formalmente un reembolso completo por una transacción realizada el [FECHA] por un monto de [MONTO].
+
+Después de revisar, considero que este cargo es no autorizado / el producto no fue como se describió / no recibí lo prometido.
+
+Solicito que este reembolso sea procesado en 5 días hábiles. Si no recibo confirmación, escalaré este asunto a mi banco/proveedor de pago y agencias de protección al consumidor.
+
+Por favor confirme recibo de esta solicitud.
+
+Atentamente,
+[TU NOMBRE]`,
+
+    followup: `Asunto: Seguimiento — Solicitud de Reembolso del [FECHA]
+
+Estimado Servicio al Cliente,
+
+Doy seguimiento a mi solicitud de reembolso enviada el [FECHA]. No he recibido respuesta ni confirmación de mi reembolso.
+
+Por favor procese este reembolso de inmediato. Si no recibo respuesta en 48 horas, procederé con una disputa formal a través de mi proveedor de pago.
+
+Saludos,
+[TU NOMBRE]`,
+
+    finalNotice: `Asunto: AVISO FINAL — Solicitud de Reembolso Sin Resolver
+
+Estimado Servicio al Cliente,
+
+Este es mi aviso final respecto a mi solicitud de reembolso enviada originalmente el [FECHA]. A pesar de intentos previos, este asunto sigue sin resolverse.
+
+Ahora estoy escalando esta disputa. Procederé a:
+1. Presentar un contracargo/disputa con mi banco
+2. Reportar a PROFECO o la agencia equivalente
+3. Presentar queja ante la autoridad de protección al consumidor
+
+Tienen 48 horas para resolver esto antes de que proceda.
+
+[TU NOMBRE]`,
+
+    escalation: [
+      '1. Presenta un contracargo con tu banco/emisor de tarjeta',
+      '2. Reporta a PROFECO (profeco.gob.mx) o equivalente',
+      '3. Presenta queja ante la CONDUSEF si es servicio financiero',
+      '4. Reporta al Ministerio Público si es fraude',
+      '5. Para PayPal/Venmo/CashApp: abre disputa en la app',
+      '6. Para crypto: reporta a la policía cibernética',
+      '7. Documenta todo: capturas, correos, IDs de transacción',
+    ],
+
+    evidence: [
+      '☐ Captura de la oferta/publicación original',
+      '☐ Recibo de transacción o estado de cuenta',
+      '☐ Capturas de todas las comunicaciones',
+      '☐ URL del sitio web/publicación',
+      '☐ Fecha y monto de la transacción',
+      '☐ Método de pago utilizado',
+      '☐ Correos de confirmación recibidos',
+    ],
+  },
 };
 
-interface TimelineCard {
+interface TimelineStep {
   id: string;
-  day: string;
+  dayEn: string;
   dayEs: string;
   titleEn: string;
   titleEs: string;
-  iconComponent: typeof Mail;
+  Icon: typeof Mail;
   iconColor: string;
-  templateKey: 'refund' | 'followup' | null;
+  templateKey: 'refund' | 'followup' | 'finalNotice' | null;
 }
 
-const TIMELINE_CARDS: TimelineCard[] = [
+const TIMELINE: TimelineStep[] = [
   {
     id: 'day0',
-    day: 'Day 0',
+    dayEn: 'Day 0',
     dayEs: 'Día 0',
     titleEn: 'Send Refund Request',
     titleEs: 'Enviar solicitud de reembolso',
-    iconComponent: Mail,
+    Icon: Mail,
     iconColor: Colors.primary,
     templateKey: 'refund',
   },
   {
     id: 'day3',
-    day: 'Day +3',
+    dayEn: 'Day +3',
     dayEs: 'Día +3',
     titleEn: 'Send Follow-up',
     titleEs: 'Enviar seguimiento',
-    iconComponent: Clock,
+    Icon: Clock,
     iconColor: Colors.unverified,
     templateKey: 'followup',
   },
   {
     id: 'day7',
-    day: 'Day +7',
+    dayEn: 'Day +7',
     dayEs: 'Día +7',
-    titleEn: 'Final Notice & Escalate',
-    titleEs: 'Aviso final y escalar',
-    iconComponent: AlertTriangleIcon,
+    titleEn: 'Final Notice',
+    titleEs: 'Aviso final',
+    Icon: AlertTriangle,
     iconColor: Colors.highRisk,
-    templateKey: null,
+    templateKey: 'finalNotice',
   },
   {
     id: 'escalate',
-    day: '',
+    dayEn: '',
     dayEs: '',
     titleEn: 'Escalation Steps',
     titleEs: 'Pasos de escalación',
-    iconComponent: Scale,
+    Icon: Scale,
     iconColor: Colors.accent,
     templateKey: null,
   },
 ];
 
 export default function RefundScreen() {
-  const { token, caseId, locale: paramLocale } = useLocalSearchParams<{
+  const { token, locale: paramLocale } = useLocalSearchParams<{
     token: string;
-    caseId: string;
     locale: string;
   }>();
   const router = useRouter();
@@ -86,40 +221,9 @@ export default function RefundScreen() {
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({ day0: true });
 
   const isEs = locale === 'es';
+  const t = isEs ? TEMPLATES.es : TEMPLATES.en;
 
-  const shareQuery = useQuery<WalletShareData | null>({
-    queryKey: ['share-link', token],
-    queryFn: () => resolveShareLink(token || ''),
-    enabled: !!token,
-    staleTime: 60000,
-  });
-
-  const caseQuery = useQuery<MoneyCaseFullResponse | null>({
-    queryKey: ['money-case', caseId],
-    queryFn: () => fetchMoneyCase(caseId || ''),
-    enabled: !!caseId,
-    staleTime: 30000,
-  });
-
-  const shareData = shareQuery.data;
-  const caseData = caseQuery.data;
-  const railPack: RailPack | null = caseData?.rail_pack ?? null;
-
-  const badgeKey: BadgeType | 'UNKNOWN' = useMemo(() => {
-    if (!shareData?.badge) return 'UNKNOWN';
-    return shareData.badge;
-  }, [shareData?.badge]);
-
-  const badgeConfig = BADGE_MINI[badgeKey];
-  const BadgeIcon = badgeConfig.Icon;
-
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      document.title = isEs ? 'Rail Pack - REAiL' : 'Refund Rail Pack - REAiL';
-    }
-  }, [isEs]);
-
-  const handleCopyText = useCallback(async (text: string, field: string) => {
+  const handleCopy = useCallback(async (text: string, field: string) => {
     try {
       await Clipboard.setStringAsync(text);
       setCopiedField(field);
@@ -139,16 +243,16 @@ export default function RefundScreen() {
 
     const shareUrl = Platform.OS === 'web'
       ? window.location.href
-      : `https://reail.app/s/${token}/refund?caseId=${caseId}`;
+      : `https://reail.app/s/${token}/refund`;
 
     const message = isEs
-      ? `Mi Rail Pack de reembolso generado por REAiL: ${shareUrl}`
-      : `My refund Rail Pack generated by REAiL: ${shareUrl}`;
+      ? `Mi kit de reembolso generado por REAiL: ${shareUrl}`
+      : `My refund kit from REAiL: ${shareUrl}`;
 
     try {
       if (Platform.OS === 'web') {
         if (navigator.share) {
-          await navigator.share({ title: 'REAiL Rail Pack', text: message, url: shareUrl });
+          await navigator.share({ title: 'REAiL Refund Kit', text: message, url: shareUrl });
         } else {
           await navigator.clipboard.writeText(shareUrl);
           setCopiedField('share-url');
@@ -160,7 +264,7 @@ export default function RefundScreen() {
     } catch (err) {
       console.log('[Refund] Share error:', err);
     }
-  }, [token, caseId, isEs]);
+  }, [token, isEs]);
 
   const toggleCard = useCallback((cardId: string) => {
     if (Platform.OS !== 'web') {
@@ -169,253 +273,160 @@ export default function RefundScreen() {
     setExpandedCards(prev => ({ ...prev, [cardId]: !prev[cardId] }));
   }, []);
 
-  const isLoading = shareQuery.isLoading || caseQuery.isLoading;
-
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <Logo size="small" />
-            <ActivityIndicator size="large" color={Colors.primary} style={styles.loader} />
-            <Text style={styles.loadingText}>
-              {isEs ? 'Cargando tu Rail Pack...' : 'Loading your Rail Pack...'}
-            </Text>
-          </View>
-        </SafeAreaView>
-      </View>
+  const CopyButton = useMemo(() => {
+    return ({ text, field, label }: { text: string; field: string; label?: string }) => (
+      <TouchableOpacity
+        style={styles.copyBtn}
+        onPress={() => handleCopy(text, field)}
+      >
+        {copiedField === field ? (
+          <Check size={16} color={Colors.verified} />
+        ) : (
+          <Copy size={16} color={Colors.primary} />
+        )}
+        <Text style={[styles.copyBtnText, copiedField === field && { color: Colors.verified }]}>
+          {copiedField === field
+            ? (isEs ? 'Copiado' : 'Copied')
+            : (label || (isEs ? 'Copiar' : 'Copy'))}
+        </Text>
+      </TouchableOpacity>
     );
-  }
-
-  if (!railPack) {
-    return (
-      <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <Logo size="small" />
-            <FileCheck size={56} color={Colors.textTertiary} style={{ marginTop: 32 }} />
-            <Text style={styles.errorTitle}>
-              {isEs ? 'Rail Pack no encontrado' : 'Rail Pack Not Found'}
-            </Text>
-            <Text style={styles.errorSubtext}>
-              {isEs
-                ? 'Regresa al reporte y genera tu Rail Pack primero.'
-                : 'Go back to the report and generate your Rail Pack first.'}
-            </Text>
-            <TouchableOpacity
-              style={styles.backNavButton}
-              onPress={() => router.back()}
-            >
-              <ArrowLeft size={18} color={Colors.text} />
-              <Text style={styles.backNavText}>
-                {isEs ? 'Volver al reporte' : 'Back to Report'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </View>
-    );
-  }
+  }, [copiedField, isEs, handleCopy]);
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.topBarBack}
-            onPress={() => router.back()}
-            testID="refund-back"
-          >
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} testID="refund-back">
             <ArrowLeft size={20} color={Colors.text} />
           </TouchableOpacity>
-          <Text style={styles.topBarTitle}>
-            {isEs ? 'Tu Rail Pack' : 'Your Rail Pack'}
-          </Text>
-          <View style={styles.topBarLang}>
+          <View style={styles.topBarCenter}>
+            <Shield size={16} color={Colors.primary} />
+            <Text style={styles.topBarTitle}>
+              {isEs ? 'Kit de Reembolso' : 'Refund Kit'}
+            </Text>
+          </View>
+          <View style={styles.langRow}>
             <TouchableOpacity
               style={[styles.langChip, locale === 'en' && styles.langChipActive]}
               onPress={() => setLocale('en')}
             >
-              <Text style={[styles.langChipText, locale === 'en' && styles.langChipTextActive]}>EN</Text>
+              <Text style={[styles.langText, locale === 'en' && styles.langTextActive]}>EN</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.langChip, locale === 'es' && styles.langChipActive]}
               onPress={() => setLocale('es')}
             >
-              <Text style={[styles.langChipText, locale === 'es' && styles.langChipTextActive]}>ES</Text>
+              <Text style={[styles.langText, locale === 'es' && styles.langTextActive]}>ES</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {shareData && (
-            <View style={styles.verdictStrip}>
-              <View style={[styles.verdictBadge, { backgroundColor: badgeConfig.bg }]}>
-                <BadgeIcon size={18} color={badgeConfig.color} />
-              </View>
-              <View style={styles.verdictInfo}>
-                <Text style={styles.verdictDomain} numberOfLines={1}>{shareData.domain}</Text>
-                {shareData.score !== null && (
-                  <Text style={[styles.verdictScore, { color: badgeConfig.color }]}>
-                    {isEs ? 'Puntuación' : 'Score'}: {shareData.score}/100
-                  </Text>
-                )}
-              </View>
-              {shareData.top_red_flags.length > 0 && (
-                <View style={styles.verdictFlagCount}>
-                  <Text style={styles.verdictFlagCountText}>{shareData.top_red_flags.length}</Text>
-                  <Text style={styles.verdictFlagLabel}>{isEs ? 'alertas' : 'flags'}</Text>
-                </View>
-              )}
-            </View>
-          )}
-
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
-            <View style={styles.sectionHeader}>
-              <Clock size={16} color={Colors.accent} />
-              <Text style={styles.sectionTitle}>
-                {isEs ? 'Línea de tiempo de reembolso' : 'Refund Timeline'}
+            <View style={styles.introCard}>
+              <Text style={styles.introTitle}>
+                {isEs ? '¿Ya pagaste?' : 'Already paid?'}
+              </Text>
+              <Text style={styles.introText}>
+                {isEs
+                  ? 'Sigue esta línea de tiempo para recuperar tu dinero. Copia las plantillas y envíalas al comercio.'
+                  : 'Follow this timeline to get your money back. Copy the templates and send them to the merchant.'}
               </Text>
             </View>
 
-            {TIMELINE_CARDS.map((card, idx) => {
-              const isExpanded = !!expandedCards[card.id];
-              const CardIcon = card.iconComponent;
-              const isLast = idx === TIMELINE_CARDS.length - 1;
+            {TIMELINE.map((step, idx) => {
+              const isExpanded = !!expandedCards[step.id];
+              const StepIcon = step.Icon;
+              const isLast = idx === TIMELINE.length - 1;
 
               return (
-                <View key={card.id} style={styles.timelineItem}>
-                  <View style={styles.timelineLine}>
-                    <View style={[styles.timelineDot, { backgroundColor: card.iconColor }]} />
-                    {!isLast && <View style={styles.timelineConnector} />}
+                <View key={step.id} style={styles.timelineItem}>
+                  <View style={styles.timelineSide}>
+                    <View style={[styles.dot, { backgroundColor: step.iconColor }]} />
+                    {!isLast && <View style={styles.connector} />}
                   </View>
 
-                  <View style={[styles.timelineCard, isExpanded && styles.timelineCardExpanded]}>
+                  <View style={[styles.card, isExpanded && { borderColor: step.iconColor + '60' }]}>
                     <TouchableOpacity
-                      style={styles.timelineCardHeader}
-                      onPress={() => toggleCard(card.id)}
+                      style={styles.cardHeader}
+                      onPress={() => toggleCard(step.id)}
                       activeOpacity={0.7}
-                      testID={`timeline-${card.id}`}
+                      testID={`timeline-${step.id}`}
                     >
-                      <CardIcon size={20} color={card.iconColor} />
-                      <View style={styles.timelineCardTitleArea}>
-                        {(card.day || card.dayEs) ? (
-                          <Text style={[styles.timelineDay, { color: card.iconColor }]}>
-                            {isEs ? card.dayEs : card.day}
+                      <StepIcon size={20} color={step.iconColor} />
+                      <View style={styles.cardTitleArea}>
+                        {(step.dayEn || step.dayEs) ? (
+                          <Text style={[styles.dayLabel, { color: step.iconColor }]}>
+                            {isEs ? step.dayEs : step.dayEn}
                           </Text>
                         ) : null}
-                        <Text style={styles.timelineCardTitle}>
-                          {isEs ? card.titleEs : card.titleEn}
+                        <Text style={styles.cardTitle}>
+                          {isEs ? step.titleEs : step.titleEn}
                         </Text>
                       </View>
                       {isExpanded
                         ? <ChevronUp size={18} color={Colors.textTertiary} />
-                        : <ChevronDown size={18} color={Colors.textTertiary} />
-                      }
+                        : <ChevronDown size={18} color={Colors.textTertiary} />}
                     </TouchableOpacity>
 
                     {isExpanded && (
-                      <View style={styles.timelineCardBody}>
-                        {card.id === 'day0' && (
+                      <View style={styles.cardBody}>
+                        {step.templateKey && step.templateKey !== 'finalNotice' && (
                           <>
-                            <Text style={styles.cardInstructions}>
-                              {isEs
-                                ? 'Copia y envía esta plantilla al servicio al cliente del comercio por email o formulario web.'
-                                : 'Copy and send this template to the merchant\'s customer service via email or web form.'}
+                            <Text style={styles.instructions}>
+                              {step.id === 'day0'
+                                ? (isEs
+                                  ? 'Copia y envía esta plantilla al servicio al cliente por email o formulario web.'
+                                  : 'Copy and send this template to customer service via email or web form.')
+                                : (isEs
+                                  ? 'Si no recibes respuesta en 3 días hábiles, envía este seguimiento.'
+                                  : 'If no response within 3 business days, send this follow-up.')}
                             </Text>
-                            <View style={styles.templateContainer}>
+                            <View style={styles.templateBox}>
                               <View style={styles.templateHeader}>
                                 <Text style={styles.templateLabel}>
-                                  {isEs ? 'Plantilla de solicitud' : 'Refund Request'}
+                                  {step.id === 'day0'
+                                    ? (isEs ? 'Solicitud de reembolso' : 'Refund Request')
+                                    : (isEs ? 'Seguimiento' : 'Follow-up')}
                                 </Text>
-                                <TouchableOpacity
-                                  style={styles.copyBtn}
-                                  onPress={() => handleCopyText(railPack.refund_request_template, 'refund')}
-                                  testID="copy-refund"
-                                >
-                                  {copiedField === 'refund' ? (
-                                    <Check size={16} color={Colors.verified} />
-                                  ) : (
-                                    <Copy size={16} color={Colors.primary} />
-                                  )}
-                                  <Text style={[styles.copyBtnText, copiedField === 'refund' && { color: Colors.verified }]}>
-                                    {copiedField === 'refund' ? (isEs ? 'Copiado' : 'Copied') : (isEs ? 'Copiar' : 'Copy')}
-                                  </Text>
-                                </TouchableOpacity>
+                                <CopyButton text={t[step.templateKey]} field={step.id} />
                               </View>
-                              <Text style={styles.templateText} selectable>{railPack.refund_request_template}</Text>
-                            </View>
-                          </>
-                        )}
-
-                        {card.id === 'day3' && (
-                          <>
-                            <Text style={styles.cardInstructions}>
-                              {isEs
-                                ? 'Si no has recibido respuesta en 3 días hábiles, envía este seguimiento.'
-                                : 'If you haven\'t received a response within 3 business days, send this follow-up.'}
-                            </Text>
-                            <View style={styles.templateContainer}>
-                              <View style={styles.templateHeader}>
-                                <Text style={styles.templateLabel}>
-                                  {isEs ? 'Plantilla de seguimiento' : 'Follow-up Template'}
-                                </Text>
-                                <TouchableOpacity
-                                  style={styles.copyBtn}
-                                  onPress={() => handleCopyText(railPack.follow_up_template, 'followup')}
-                                  testID="copy-followup"
-                                >
-                                  {copiedField === 'followup' ? (
-                                    <Check size={16} color={Colors.verified} />
-                                  ) : (
-                                    <Copy size={16} color={Colors.primary} />
-                                  )}
-                                  <Text style={[styles.copyBtnText, copiedField === 'followup' && { color: Colors.verified }]}>
-                                    {copiedField === 'followup' ? (isEs ? 'Copiado' : 'Copied') : (isEs ? 'Copiar' : 'Copy')}
-                                  </Text>
-                                </TouchableOpacity>
-                              </View>
-                              <Text style={styles.templateText} selectable>{railPack.follow_up_template}</Text>
-                            </View>
-                          </>
-                        )}
-
-                        {card.id === 'day7' && (
-                          <>
-                            <Text style={styles.cardInstructions}>
-                              {isEs
-                                ? 'Sin respuesta después de 7 días: es hora de escalar. Reenvía la plantilla de seguimiento con un aviso final y procede con los pasos de escalación.'
-                                : 'No response after 7 days: time to escalate. Re-send the follow-up template with a final notice and proceed with escalation steps below.'}
-                            </Text>
-                            <TouchableOpacity
-                              style={styles.copyBtn}
-                              onPress={() => handleCopyText(railPack.follow_up_template, 'final')}
-                            >
-                              {copiedField === 'final' ? (
-                                <Check size={16} color={Colors.verified} />
-                              ) : (
-                                <Copy size={16} color={Colors.primary} />
-                              )}
-                              <Text style={[styles.copyBtnText, copiedField === 'final' && { color: Colors.verified }]}>
-                                {copiedField === 'final'
-                                  ? (isEs ? 'Copiado' : 'Copied')
-                                  : (isEs ? 'Copiar plantilla de seguimiento' : 'Copy follow-up template')}
+                              <Text style={styles.templateText} selectable>
+                                {t[step.templateKey]}
                               </Text>
-                            </TouchableOpacity>
+                            </View>
                           </>
                         )}
 
-                        {card.id === 'escalate' && (
+                        {step.id === 'day7' && (
                           <>
-                            <View style={styles.checklistContainer}>
-                              {railPack.escalation_checklist.map((item, i) => (
-                                <Text key={i} style={styles.checklistItem}>{item}</Text>
-                              ))}
+                            <Text style={styles.instructions}>
+                              {isEs
+                                ? 'Sin respuesta después de 7 días. Envía el aviso final y procede con la escalación.'
+                                : 'No response after 7 days. Send final notice and proceed with escalation.'}
+                            </Text>
+                            <View style={styles.templateBox}>
+                              <View style={styles.templateHeader}>
+                                <Text style={styles.templateLabel}>
+                                  {isEs ? 'Aviso final' : 'Final Notice'}
+                                </Text>
+                                <CopyButton text={t.finalNotice} field="final" />
+                              </View>
+                              <Text style={styles.templateText} selectable>
+                                {t.finalNotice}
+                              </Text>
                             </View>
                           </>
+                        )}
+
+                        {step.id === 'escalate' && (
+                          <View style={styles.listContainer}>
+                            {t.escalation.map((item, i) => (
+                              <Text key={i} style={styles.listItem}>{item}</Text>
+                            ))}
+                          </View>
                         )}
                       </View>
                     )}
@@ -431,34 +442,38 @@ export default function RefundScreen() {
               </Text>
             </View>
             <View style={styles.evidenceCard}>
-              {railPack.evidence_checklist.map((item, idx) => (
+              {t.evidence.map((item, idx) => (
                 <Text key={idx} style={styles.evidenceItem}>{item}</Text>
               ))}
             </View>
 
             <TouchableOpacity
-              style={styles.sharePackButton}
+              style={styles.sharePackBtn}
               onPress={handleSharePack}
               activeOpacity={0.85}
               testID="share-pack-btn"
             >
-              <Share2 size={20} color={Colors.text} />
+              <Share2 size={20} color="white" />
               <Text style={styles.sharePackText}>
                 {copiedField === 'share-url'
                   ? (isEs ? 'Enlace copiado' : 'Link Copied')
-                  : (isEs ? 'Compartir Rail Pack' : 'Share Rail Pack')}
+                  : (isEs ? 'Compartir kit' : 'Share Refund Kit')}
               </Text>
             </TouchableOpacity>
 
-            <View style={styles.disclaimerBox}>
+            <View style={styles.disclaimer}>
               <Text style={styles.disclaimerTitle}>
                 {isEs ? 'Aviso legal' : 'Legal Disclaimer'}
               </Text>
-              <Text style={styles.disclaimerText}>{railPack.disclaimer}</Text>
+              <Text style={styles.disclaimerText}>
+                {isEs
+                  ? 'Estas plantillas son orientativas y no constituyen asesoría legal. REAiL no garantiza resultados específicos. Consulta con un profesional legal si es necesario.'
+                  : 'These templates are for guidance only and do not constitute legal advice. REAiL does not guarantee specific outcomes. Consult a legal professional if needed.'}
+              </Text>
             </View>
 
             <View style={styles.footerArea}>
-              <Text style={styles.footerText}>Powered by REAiL Systems</Text>
+              <Text style={styles.footerText}>REAiL Scan</Text>
             </View>
           </View>
         </ScrollView>
@@ -470,80 +485,42 @@ export default function RefundScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: '#050508',
   },
   safeArea: {
     flex: 1,
   },
-  scrollView: {
+  scroll: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  loader: {
-    marginTop: 32,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  backNavButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 24,
-  },
-  backNavText: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.text,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  topBarBack: {
+  backBtn: {
     width: 40,
     height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  topBarCenter: {
+    flex: 1,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 6,
   },
   topBarTitle: {
-    flex: 1,
     fontSize: 17,
     fontWeight: '700' as const,
     color: Colors.text,
-    textAlign: 'center',
   },
-  topBarLang: {
-    flexDirection: 'row',
+  langRow: {
+    flexDirection: 'row' as const,
     backgroundColor: Colors.backgroundTertiary,
     borderRadius: 6,
     padding: 2,
@@ -556,101 +533,59 @@ const styles = StyleSheet.create({
   langChipActive: {
     backgroundColor: Colors.primary,
   },
-  langChipText: {
+  langText: {
     fontSize: 11,
     fontWeight: '600' as const,
     color: Colors.textTertiary,
   },
-  langChipTextActive: {
-    color: Colors.text,
-  },
-  verdictStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: Colors.card,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
-    gap: 12,
-  },
-  verdictBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  verdictInfo: {
-    flex: 1,
-  },
-  verdictDomain: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  verdictScore: {
-    fontSize: 12,
-    fontWeight: '500' as const,
-    marginTop: 2,
-  },
-  verdictFlagCount: {
-    alignItems: 'center',
-    backgroundColor: Colors.highRiskBg,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  verdictFlagCountText: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.highRisk,
-  },
-  verdictFlagLabel: {
-    fontSize: 9,
-    color: Colors.highRisk,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
+  langTextActive: {
+    color: 'white',
   },
   content: {
     paddingHorizontal: 16,
     paddingTop: 20,
     paddingBottom: 40,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 14,
-    marginTop: 8,
+  introCard: {
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600' as const,
+  introTitle: {
+    fontSize: 20,
+    fontWeight: '800' as const,
     color: Colors.text,
-    letterSpacing: 0.3,
+    marginBottom: 6,
+  },
+  introText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 20,
   },
   timelineItem: {
-    flexDirection: 'row',
+    flexDirection: 'row' as const,
     marginBottom: 4,
   },
-  timelineLine: {
+  timelineSide: {
     width: 24,
-    alignItems: 'center',
+    alignItems: 'center' as const,
     paddingTop: 4,
   },
-  timelineDot: {
+  dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-  timelineConnector: {
+  connector: {
     width: 2,
     flex: 1,
     backgroundColor: Colors.border,
     marginTop: 4,
   },
-  timelineCard: {
+  card: {
     flex: 1,
     backgroundColor: Colors.card,
     borderRadius: 14,
@@ -658,56 +593,53 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     marginLeft: 8,
     marginBottom: 10,
-    overflow: 'hidden',
+    overflow: 'hidden' as const,
   },
-  timelineCardExpanded: {
-    borderColor: Colors.primary + '40',
-  },
-  timelineCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  cardHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     padding: 14,
     gap: 10,
   },
-  timelineCardTitleArea: {
+  cardTitleArea: {
     flex: 1,
   },
-  timelineDay: {
+  dayLabel: {
     fontSize: 11,
     fontWeight: '700' as const,
     letterSpacing: 0.5,
     textTransform: 'uppercase' as const,
     marginBottom: 2,
   },
-  timelineCardTitle: {
+  cardTitle: {
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.text,
   },
-  timelineCardBody: {
+  cardBody: {
     paddingHorizontal: 14,
     paddingBottom: 14,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
     paddingTop: 12,
   },
-  cardInstructions: {
+  instructions: {
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 19,
     marginBottom: 12,
   },
-  templateContainer: {
+  templateBox: {
     backgroundColor: Colors.backgroundSecondary,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Colors.border,
-    overflow: 'hidden',
+    overflow: 'hidden' as const,
   },
   templateHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
@@ -722,8 +654,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   copyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     gap: 6,
     paddingVertical: 4,
     paddingHorizontal: 8,
@@ -740,13 +672,26 @@ const styles = StyleSheet.create({
     padding: 12,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  checklistContainer: {
-    gap: 6,
+  listContainer: {
+    gap: 8,
   },
-  checklistItem: {
+  listItem: {
     fontSize: 13,
     color: Colors.text,
     lineHeight: 22,
+  },
+  sectionHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginBottom: 14,
+    marginTop: 12,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    letterSpacing: 0.3,
   },
   evidenceCard: {
     backgroundColor: Colors.card,
@@ -754,18 +699,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     padding: 14,
-    gap: 6,
+    gap: 8,
     marginBottom: 20,
   },
   evidenceItem: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.text,
     lineHeight: 22,
   },
-  sharePackButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  sharePackBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
     gap: 10,
     backgroundColor: Colors.primary,
     height: 52,
@@ -775,9 +720,9 @@ const styles = StyleSheet.create({
   sharePackText: {
     fontSize: 15,
     fontWeight: '700' as const,
-    color: Colors.text,
+    color: 'white',
   },
-  disclaimerBox: {
+  disclaimer: {
     backgroundColor: Colors.backgroundTertiary,
     borderRadius: 12,
     padding: 14,
@@ -797,11 +742,12 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   footerArea: {
-    alignItems: 'center',
+    alignItems: 'center' as const,
     paddingVertical: 16,
   },
   footerText: {
     fontSize: 12,
     color: Colors.textTertiary,
+    fontWeight: '600' as const,
   },
 });
