@@ -1,12 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack, useRouter } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useCallback } from 'react';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StatusBar } from 'expo-status-bar';
-import Colors from '@/constants/colors';
-import { AppProvider } from '@/contexts/AppContext';
-import { getInitialURL, addUrlListener, parseIncomingUrl } from '@/utils/deepLinking';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import React, { useEffect } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -14,112 +10,11 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: Colors.background },
-        animation: 'slide_from_right',
-      }}
-    >
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen 
-        name="scanning" 
-        options={{ 
-          animation: 'fade',
-          gestureEnabled: false,
-        }} 
-      />
-      <Stack.Screen 
-        name="result" 
-        options={{ 
-          animation: 'slide_from_bottom',
-        }} 
-      />
-
-      <Stack.Screen 
-        name="share-tutorial" 
-        options={{ 
-          presentation: 'modal',
-          animation: 'slide_from_bottom',
-        }} 
-      />
-      <Stack.Screen 
-        name="r/[scanId]" 
-        options={{ 
-          animation: 'slide_from_bottom',
-        }} 
-      />
-      <Stack.Screen 
-        name="s/[token]" 
-        options={{ 
-          animation: 'fade',
-          headerShown: false,
-        }} 
-      />
-      <Stack.Screen 
-        name="tools" 
-        options={{ 
-          animation: 'slide_from_right',
-        }} 
-      />
-      <Stack.Screen 
-        name="watchlist" 
-        options={{ 
-          animation: 'slide_from_right',
-        }} 
-      />
-      <Stack.Screen 
-        name="appeal" 
-        options={{ 
-          animation: 'slide_from_bottom',
-        }} 
-      />
-      <Stack.Screen 
-        name="claim" 
-        options={{ 
-          animation: 'slide_from_bottom',
-        }} 
-      />
-      <Stack.Screen 
-        name="money-case" 
-        options={{ 
-          animation: 'slide_from_bottom',
-        }} 
-      />
-      <Stack.Screen name="+not-found" />
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="s/[token]" options={{ headerShown: false }} />
     </Stack>
   );
-}
-
-function DeepLinkHandler() {
-  const router = useRouter();
-
-  const handleDeepLink = useCallback((url: string | null) => {
-    if (!url) return;
-    
-    console.log('[DeepLink] Received URL:', url);
-    
-    const route = parseIncomingUrl(url);
-    
-    if (route.type === 'result') {
-      console.log('[DeepLink] Navigating to result with scanId:', route.scanId);
-      router.push({ pathname: '/result', params: { scanId: route.scanId } } as any);
-      return;
-    }
-
-    if (route.type === 'scan') {
-      console.log('[DeepLink] Share-to-Scan detected, URL:', route.url);
-      router.push({ pathname: '/scanning', params: { url: route.url } } as any);
-    }
-  }, [router]);
-
-  useEffect(() => {
-    getInitialURL().then(handleDeepLink);
-    const unsubscribe = addUrlListener(handleDeepLink);
-    return unsubscribe;
-  }, [handleDeepLink]);
-
-  return null;
 }
 
 export default function RootLayout() {
@@ -130,11 +25,7 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <AppProvider>
-          <DeepLinkHandler />
-          <StatusBar style="light" />
-          <RootLayoutNav />
-        </AppProvider>
+        <RootLayoutNav />
       </GestureHandlerRootView>
     </QueryClientProvider>
   );

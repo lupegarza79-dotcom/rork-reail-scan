@@ -27,19 +27,16 @@ import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { resolveShareLink, WalletShareData } from '@/utils/walletShare';
-import type { BadgeType } from '@/types/scan';
 
 type Verdict = 'STOP' | 'CAUTION' | 'OK';
 
 interface VerdictConfig {
   verdict: Verdict;
   emoji: string;
-  headlineEn: string;
-  headlineEs: string;
+  headline: string;
   color: string;
   bg: string;
-  badgeLabelEn: string;
-  badgeLabelEs: string;
+  badgeLabel: string;
   Icon: typeof ShieldOff;
 }
 
@@ -47,34 +44,28 @@ const VERDICT_MAP: Record<Verdict, VerdictConfig> = {
   STOP: {
     verdict: 'STOP',
     emoji: '🛑',
-    headlineEn: 'STOP PAYING',
-    headlineEs: 'NO PAGUES',
+    headline: 'STOP PAYING',
     color: '#EF4444',
-    bg: 'rgba(239, 68, 68, 0.12)',
-    badgeLabelEn: 'HIGH RISK',
-    badgeLabelEs: 'ALTO RIESGO',
+    bg: 'rgba(239, 68, 68, 0.10)',
+    badgeLabel: 'HIGH RISK',
     Icon: ShieldOff,
   },
   CAUTION: {
     verdict: 'CAUTION',
     emoji: '⚠️',
-    headlineEn: 'CAUTION',
-    headlineEs: 'PRECAUCIÓN',
+    headline: 'CAUTION',
     color: '#F59E0B',
-    bg: 'rgba(245, 158, 11, 0.12)',
-    badgeLabelEn: 'CAUTION',
-    badgeLabelEs: 'PRECAUCIÓN',
+    bg: 'rgba(245, 158, 11, 0.10)',
+    badgeLabel: 'CAUTION',
     Icon: ShieldAlert,
   },
   OK: {
     verdict: 'OK',
     emoji: '✅',
-    headlineEn: 'OK TO PROCEED',
-    headlineEs: 'SEGURO',
+    headline: 'OK TO PROCEED',
     color: '#10B981',
-    bg: 'rgba(16, 185, 129, 0.12)',
-    badgeLabelEn: 'OK',
-    badgeLabelEs: 'OK',
+    bg: 'rgba(16, 185, 129, 0.10)',
+    badgeLabel: 'OK',
     Icon: ShieldCheck,
   },
 };
@@ -85,51 +76,48 @@ function computeVerdict(data: WalletShareData): Verdict {
 
   if (score <= 35) return 'STOP';
   if (badge === 'HIGH_RISK' || badge === 'UNVERIFIED') return 'STOP';
-  if (score >= 70 && badge === 'VERIFIED') return 'OK';
-  if (score >= 36 && score <= 69) return 'CAUTION';
+  if (score >= 70) return 'OK';
   return 'CAUTION';
 }
 
-function detectLocale(): 'en' | 'es' {
-  if (Platform.OS === 'web') {
-    try {
-      const lang = navigator.language || '';
-      if (lang.startsWith('es')) return 'es';
-    } catch {}
-  }
-  return 'en';
+function getActionText(verdict: Verdict): string {
+  if (verdict === 'STOP') return 'Do not send money or share personal information.';
+  if (verdict === 'CAUTION') return 'Research further before proceeding.';
+  return 'No significant risk signals detected.';
 }
 
 export default function WalletShieldScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
-  const [locale, setLocale] = useState<'en' | 'es'>(detectLocale);
   const pulseAnim = useMemo(() => new Animated.Value(1), []);
-
-  const isEs = locale === 'es';
 
   const { data, isLoading, error, refetch } = useQuery<WalletShareData | null>({
     queryKey: ['share-link', token],
     queryFn: () => resolveShareLink(token || ''),
     enabled: !!token,
     staleTime: 30000,
+    retry: 1,
   });
 
-  const verdict = useMemo(() => (data ? computeVerdict(data) : null), [data]);
-  const config = verdict ? VERDICT_MAP[verdict] : null;
+  const verdict = useMemo<Verdict>(() => {
+    if (!data) return 'CAUTION';
+    return computeVerdict(data);
+  }, [data]);
+
+  const config = VERDICT_MAP[verdict];
 
   useEffect(() => {
     if (verdict === 'STOP') {
       const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.04,
-            duration: 800,
+            toValue: 1.03,
+            duration: 900,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 800,
+            duration: 900,
             useNativeDriver: true,
           }),
         ])
@@ -141,7 +129,7 @@ export default function WalletShieldScreen() {
 
   useEffect(() => {
     if (Platform.OS === 'web' && data && config) {
-      document.title = `${config.emoji} ${config.headlineEn} — REAiL Scan`;
+      document.title = `${config.emoji} ${config.headline} — REAiL Scan`;
 
       const setMeta = (property: string, content: string) => {
         let tag = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
@@ -169,7 +157,6 @@ export default function WalletShieldScreen() {
       setMeta('og:description', ogDesc);
       setMeta('og:type', 'website');
       setMeta('og:url', window.location.href);
-      setMeta('og:image', 'https://reail.app/og/default-share.png');
     }
   }, [data, config, verdict]);
 
@@ -179,22 +166,9 @@ export default function WalletShieldScreen() {
   }, [data?.top_red_flags]);
 
   const actionText = useMemo(() => {
-    if (!data) return '';
-    if (data.next_action) return data.next_action;
-    if (verdict === 'STOP') {
-      return isEs
-        ? 'No envíes dinero ni compartas información personal.'
-        : 'Do not send money or share personal information.';
-    }
-    if (verdict === 'CAUTION') {
-      return isEs
-        ? 'Investiga más antes de proceder.'
-        : 'Research further before proceeding.';
-    }
-    return isEs
-      ? 'No se detectaron señales de riesgo significativas.'
-      : 'No significant risk signals detected.';
-  }, [data, verdict, isEs]);
+    if (data?.next_action) return data.next_action;
+    return getActionText(verdict);
+  }, [data, verdict]);
 
   const handleShare = useCallback(async () => {
     if (Platform.OS !== 'web') {
@@ -205,16 +179,13 @@ export default function WalletShieldScreen() {
       ? window.location.href
       : `https://reail.app/s/${token}`;
 
-    const shareEmoji = verdict === 'STOP' ? '🛑' : verdict === 'CAUTION' ? '⚠️' : '✅';
-    const message = isEs
-      ? `${shareEmoji} REAiL detectó riesgo en este enlace. Revisa antes de pagar: ${shareUrl}`
-      : `${shareEmoji} REAiL detected risk in this link. Check before you pay: ${shareUrl}`;
+    const message = `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`;
 
     try {
       if (Platform.OS === 'web') {
-        if (navigator.share) {
+        if (typeof navigator !== 'undefined' && navigator.share) {
           await navigator.share({ title: '🛑 STOP PAYING — REAiL', text: message, url: shareUrl });
-        } else {
+        } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
           await navigator.clipboard.writeText(message);
         }
       } else {
@@ -223,7 +194,7 @@ export default function WalletShieldScreen() {
     } catch (err) {
       console.log('[Shield] Share error:', err);
     }
-  }, [token, verdict, isEs]);
+  }, [token]);
 
   const handleAlreadyPaid = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -231,9 +202,9 @@ export default function WalletShieldScreen() {
     }
     router.push({
       pathname: '/s/[token]/refund',
-      params: { token: token || '', locale },
-    } as any);
-  }, [token, locale, router]);
+      params: { token: token || '' },
+    } as never);
+  }, [token, router]);
 
   if (isLoading) {
     return (
@@ -242,31 +213,76 @@ export default function WalletShieldScreen() {
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.centerContent}>
             <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={styles.loadingText}>
-              {isEs ? 'Escaneando...' : 'Scanning...'}
-            </Text>
+            <Text style={styles.loadingText}>Scanning…</Text>
           </View>
         </SafeAreaView>
       </View>
     );
   }
 
-  if (error || !data || !config || !verdict) {
+  if (error && !data) {
+    const fallbackVerdict = VERDICT_MAP.CAUTION;
+    return (
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+            <View style={styles.headerStrip}>
+              <Text style={styles.headerStripText}>🛑 STOP PAYING</Text>
+            </View>
+            <View style={[styles.verdictCard, { borderColor: fallbackVerdict.color, backgroundColor: fallbackVerdict.bg }]}>
+              <View style={[styles.verdictIconWrap, { backgroundColor: fallbackVerdict.color }]}>
+                <ShieldAlert size={36} color="white" strokeWidth={2.5} />
+              </View>
+              <View style={[styles.badgePill, { backgroundColor: fallbackVerdict.color }]}>
+                <Text style={styles.badgePillText}>CAUTION</Text>
+              </View>
+            </View>
+            <View style={styles.actionCard}>
+              <Text style={styles.actionText}>Unable to fully verify. Proceed with caution.</Text>
+            </View>
+            <View style={styles.buttonsArea}>
+              <TouchableOpacity
+                style={[styles.shareBtn, { backgroundColor: fallbackVerdict.color }]}
+                onPress={handleShare}
+                activeOpacity={0.85}
+                testID="share-btn"
+              >
+                <Share2 size={20} color="white" strokeWidth={2.5} />
+                <Text style={styles.shareBtnText}>Share Warning</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.paidBtn}
+                onPress={handleAlreadyPaid}
+                activeOpacity={0.85}
+                testID="paid-btn"
+              >
+                <DollarSign size={20} color={Colors.text} />
+                <Text style={styles.paidBtnText}>I already paid</Text>
+                <ChevronRight size={18} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.footer}>
+              <Text style={styles.footerBrand}>REAiL Scan</Text>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!data) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.centerContent}>
-            <OctagonAlert size={56} color={Colors.highRisk} />
-            <Text style={styles.errorTitle}>
-              {isEs ? 'Enlace no encontrado' : 'Link Not Found'}
-            </Text>
-            <Text style={styles.errorSub}>
-              {isEs ? 'Puede haber expirado.' : 'It may have expired.'}
-            </Text>
+            <OctagonAlert size={48} color={Colors.highRisk} />
+            <Text style={styles.errorTitle}>Link Not Found</Text>
+            <Text style={styles.errorSub}>It may have expired.</Text>
             <TouchableOpacity style={styles.retryBtn} onPress={() => refetch()} testID="retry-btn">
               <RefreshCw size={18} color="white" />
-              <Text style={styles.retryText}>{isEs ? 'Reintentar' : 'Retry'}</Text>
+              <Text style={styles.retryText}>Retry</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -278,26 +294,15 @@ export default function WalletShieldScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerShown: false, title: `${config.emoji} ${config.headlineEn} — REAiL` }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.langRow}>
-            <TouchableOpacity
-              style={[styles.langChip, locale === 'en' && styles.langChipActive]}
-              onPress={() => setLocale('en')}
-            >
-              <Text style={[styles.langText, locale === 'en' && styles.langTextActive]}>EN</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.langChip, locale === 'es' && styles.langChipActive]}
-              onPress={() => setLocale('es')}
-            >
-              <Text style={[styles.langText, locale === 'es' && styles.langTextActive]}>ES</Text>
-            </TouchableOpacity>
+          <View style={styles.headerStrip}>
+            <Text style={styles.headerStripText}>🛑 STOP PAYING</Text>
           </View>
 
           <Animated.View
@@ -311,32 +316,18 @@ export default function WalletShieldScreen() {
             ]}
           >
             <View style={[styles.verdictIconWrap, { backgroundColor: config.color }]}>
-              <VerdictIcon size={40} color="white" strokeWidth={2.5} />
+              <VerdictIcon size={36} color="white" strokeWidth={2.5} />
             </View>
-            <Text style={[styles.verdictHeadline, { color: config.color }]}>
-              {config.emoji} {isEs ? config.headlineEs : config.headlineEn}
-            </Text>
             <View style={[styles.badgePill, { backgroundColor: config.color }]}>
-              <Text style={styles.badgePillText}>
-                {isEs ? config.badgeLabelEs : config.badgeLabelEn}
-              </Text>
+              <Text style={styles.badgePillText}>{config.badgeLabel}</Text>
             </View>
-            {data.score !== null && (
-              <Text style={[styles.scoreText, { color: config.color }]}>
-                {data.score}/100
-              </Text>
-            )}
           </Animated.View>
-
-          <View style={styles.domainStrip}>
-            <Text style={styles.domainLabel} numberOfLines={1}>{data.domain}</Text>
-          </View>
 
           {reasons.length > 0 && (
             <View style={styles.reasonsCard}>
               {reasons.map((flag, idx) => (
                 <View key={idx} style={styles.reasonRow}>
-                  <AlertTriangle size={16} color={config.color} />
+                  <AlertTriangle size={15} color={config.color} />
                   <Text style={styles.reasonText}>{flag}</Text>
                 </View>
               ))}
@@ -355,9 +346,7 @@ export default function WalletShieldScreen() {
               testID="share-btn"
             >
               <Share2 size={20} color="white" strokeWidth={2.5} />
-              <Text style={styles.shareBtnText}>
-                {isEs ? 'Compartir advertencia' : 'Share Warning'}
-              </Text>
+              <Text style={styles.shareBtnText}>Share Warning</Text>
             </TouchableOpacity>
 
             {verdict !== 'OK' && (
@@ -368,9 +357,7 @@ export default function WalletShieldScreen() {
                 testID="paid-btn"
               >
                 <DollarSign size={20} color={Colors.text} />
-                <Text style={styles.paidBtnText}>
-                  {isEs ? 'Ya pagué' : 'I already paid'}
-                </Text>
+                <Text style={styles.paidBtnText}>I already paid</Text>
                 <ChevronRight size={18} color={Colors.textTertiary} />
               </TouchableOpacity>
             )}
@@ -378,11 +365,6 @@ export default function WalletShieldScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerBrand}>REAiL Scan</Text>
-            <Text style={styles.footerDisclaimer}>
-              {isEs
-                ? 'Análisis basado en señales públicas. No es verdad absoluta.'
-                : 'Analysis based on public signals. Not absolute truth.'}
-            </Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -403,7 +385,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 8,
     paddingBottom: 40,
   },
   centerContent: {
@@ -444,87 +426,47 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: 'white',
   },
-  langRow: {
-    flexDirection: 'row' as const,
-    justifyContent: 'flex-end' as const,
-    gap: 4,
+  headerStrip: {
+    alignItems: 'center' as const,
+    paddingVertical: 14,
     marginBottom: 16,
   },
-  langChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: Colors.backgroundTertiary,
-  },
-  langChipActive: {
-    backgroundColor: Colors.primary,
-  },
-  langText: {
-    fontSize: 12,
-    fontWeight: '700' as const,
-    color: Colors.textTertiary,
-  },
-  langTextActive: {
-    color: 'white',
+  headerStripText: {
+    fontSize: 22,
+    fontWeight: '900' as const,
+    color: '#EF4444',
+    letterSpacing: 1.5,
   },
   verdictCard: {
     alignItems: 'center' as const,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 2,
-    paddingVertical: 32,
+    paddingVertical: 28,
     paddingHorizontal: 20,
     marginBottom: 16,
   },
   verdictIconWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     marginBottom: 16,
   },
-  verdictHeadline: {
-    fontSize: 28,
-    fontWeight: '900' as const,
-    letterSpacing: 1,
-    textAlign: 'center' as const,
-    marginBottom: 12,
-  },
   badgePill: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 7,
     borderRadius: 20,
-    marginBottom: 8,
   },
   badgePillText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800' as const,
     color: 'white',
-    letterSpacing: 1,
-  },
-  scoreText: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    marginTop: 4,
-  },
-  domainStrip: {
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  domainLabel: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
-    textAlign: 'center' as const,
+    letterSpacing: 1.2,
   },
   reasonsCard: {
     backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
@@ -565,7 +507,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center' as const,
     gap: 10,
     height: 56,
-    borderRadius: 16,
+    borderRadius: 14,
   },
   shareBtnText: {
     fontSize: 17,
@@ -591,19 +533,12 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center' as const,
-    gap: 6,
+    gap: 4,
   },
   footerBrand: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700' as const,
     color: Colors.textTertiary,
     letterSpacing: 0.5,
-  },
-  footerDisclaimer: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-    textAlign: 'center' as const,
-    lineHeight: 16,
-    paddingHorizontal: 20,
   },
 });

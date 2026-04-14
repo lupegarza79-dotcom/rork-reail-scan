@@ -88,35 +88,3 @@ export async function resolveShareLink(token: string): Promise<WalletShareData |
     return null;
   }
 }
-
-export function getShareUrl(token: string, baseWebUrl = "https://reail.app"): string {
-  return `${baseWebUrl}/s/${token}`;
-}
-
-export function getOgMetadata(data: WalletShareData): {
-  title: string;
-  description: string;
-  image: string;
-} {
-  const badgeText = data.badge || "UNSCANNED";
-  const scoreText = data.score !== null ? `Score: ${data.score}/100` : "Not yet scanned";
-  
-  let statusEmoji = "🛡️";
-  if (data.badge === "VERIFIED") statusEmoji = "✅";
-  else if (data.badge === "HIGH_RISK") statusEmoji = "⚠️";
-  else if (data.badge === "UNVERIFIED") statusEmoji = "❓";
-
-  const title = `${statusEmoji} ${badgeText} - REAiL Safety Report`;
-  
-  let description = `${data.domain} | ${scoreText}`;
-  if (data.top_red_flags.length > 0) {
-    description += ` | ${data.top_red_flags.length} flag(s) detected`;
-  }
-  if (data.next_action) {
-    description += `. ${data.next_action}`;
-  }
-
-  const image = `https://reail.app/og/${data.token}.png`;
-
-  return { title, description, image };
-}

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "REAiL Scan",
-    "slug": "real-scan",
+    "name": "REAiL Wallet Shield",
+    "slug": "xhs9qov5t0pnfshy4a0y0",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "reailscan",
+    "scheme": "rork-app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,43 +15,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.reail.scan",
-      "associatedDomains": ["applinks:reail.app"],
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
-        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone"
-      }
+      "bundleIdentifier": "app.rork.xhs9qov5t0pnfshy4a0y0"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.reail.scan",
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "reail.app",
-              "pathPrefix": "/r/"
-            }
-          ],
-          "category": ["BROWSABLE", "DEFAULT"]
-        }
-      ],
-      "permissions": [
-        "android.permission.VIBRATE",
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE"
-      ]
+      "package": "app.rork.xhs9qov5t0pnfshy4a0y0"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -60,17 +31,11 @@
       [
         "expo-router",
         {
-          "origin": "https://reail.app/"
+          "origin": "https://rork.com/"
         }
       ],
       "expo-font",
-      "expo-web-browser",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "The app accesses your photos to let you share them with your friends."
-        }
-      ]
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

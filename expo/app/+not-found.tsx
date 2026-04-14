@@ -1,55 +1,58 @@
-import { Link, Stack } from 'expo-router';
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { AlertCircle } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Shield } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 
 export default function NotFoundScreen() {
+  const router = useRouter();
+
   return (
-    <>
-      <Stack.Screen options={{ title: 'Oops!' }} />
-      <View style={styles.container}>
-        <AlertCircle size={64} color={Colors.textTertiary} />
-        <Text style={styles.title}>Page Not Found</Text>
-        <Text style={styles.subtitle}>This screen does not exist.</Text>
-        <Link href="/" asChild>
-          <TouchableOpacity style={styles.button}>
-            <Text style={styles.buttonText}>Go to Home</Text>
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          <Shield size={48} color={Colors.textTertiary} />
+          <Text style={styles.title}>Page Not Found</Text>
+          <TouchableOpacity style={styles.btn} onPress={() => router.replace('/')}>
+            <Text style={styles.btnText}>Go to Scanner</Text>
           </TouchableOpacity>
-        </Link>
-      </View>
-    </>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
     backgroundColor: Colors.background,
   },
+  safeArea: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 16,
+    paddingHorizontal: 32,
+  },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700' as const,
     color: Colors.text,
-    marginTop: 20,
-    marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 24,
-  },
-  button: {
+  btn: {
     backgroundColor: Colors.primary,
     paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 12,
+    marginTop: 8,
   },
-  buttonText: {
+  btnText: {
     fontSize: 15,
     fontWeight: '600' as const,
-    color: Colors.text,
+    color: 'white',
   },
 });
