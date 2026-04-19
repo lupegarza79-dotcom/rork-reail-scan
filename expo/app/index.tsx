@@ -123,7 +123,7 @@ export default function LandingScreen() {
             </Animated.View>
             <Text style={styles.title}>REAiL</Text>
             <Text style={styles.subtitle}>Wallet Shield</Text>
-            <Text style={styles.tagline}>Paste link. Know before you pay.</Text>
+            <Text style={styles.tagline}>Before paying — STOP PAYING.</Text>
           </View>
 
           <View style={styles.inputArea}>
@@ -131,7 +131,7 @@ export default function LandingScreen() {
               <Search size={18} color={Colors.textTertiary} />
               <TextInput
                 style={styles.input}
-                placeholder="Paste any link here…"
+                placeholder="Paste link"
                 placeholderTextColor={Colors.textTertiary}
                 value={url}
                 onChangeText={(t) => {
@@ -173,7 +173,7 @@ export default function LandingScreen() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>No login. No app needed. Just paste.</Text>
+            <Text style={styles.footerText}>No login. No app. Just paste.</Text>
           </View>
         </View>
       </SafeAreaView>

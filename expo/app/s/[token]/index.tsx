@@ -81,9 +81,15 @@ function computeVerdict(data: WalletShareData): Verdict {
 }
 
 function getActionText(verdict: Verdict): string {
-  if (verdict === 'STOP') return 'Do not send money or share personal information.';
-  if (verdict === 'CAUTION') return 'Research further before proceeding.';
+  if (verdict === 'STOP') return '👉 Do NOT enter your card';
+  if (verdict === 'CAUTION') return '👉 Do NOT enter your card yet';
   return 'No significant risk signals detected.';
+}
+
+function getSubText(verdict: Verdict): string {
+  if (verdict === 'STOP') return 'High risk signals detected';
+  if (verdict === 'CAUTION') return 'Caution signals detected';
+  return 'No risk signals detected';
 }
 
 export default function WalletShieldScreen() {
@@ -141,17 +147,8 @@ export default function WalletShieldScreen() {
         tag.content = content;
       };
 
-      const ogTitle = verdict === 'STOP'
-        ? '🛑 STOP PAYING — REAiL Scan'
-        : verdict === 'CAUTION'
-        ? '⚠️ CAUTION — REAiL Scan'
-        : '✅ OK TO PROCEED — REAiL Scan';
-
-      const ogDesc = verdict === 'STOP'
-        ? 'High risk signals detected. Scan before you pay.'
-        : verdict === 'CAUTION'
-        ? 'Some concerns detected. Review before proceeding.'
-        : 'This link appears safe based on available signals.';
+      const ogTitle = '🛑 STOP PAYING — REAiL';
+      const ogDesc = 'High risk signals detected. Check before you pay.';
 
       setMeta('og:title', ogTitle);
       setMeta('og:description', ogDesc);
@@ -303,6 +300,7 @@ export default function WalletShieldScreen() {
         >
           <View style={styles.headerStrip}>
             <Text style={styles.headerStripText}>🛑 STOP PAYING</Text>
+            <Text style={styles.headerSubText}>{getSubText(verdict)}</Text>
           </View>
 
           <Animated.View
@@ -430,12 +428,19 @@ const styles = StyleSheet.create({
     alignItems: 'center' as const,
     paddingVertical: 14,
     marginBottom: 16,
+    gap: 6,
   },
   headerStripText: {
-    fontSize: 22,
+    fontSize: 32,
     fontWeight: '900' as const,
     color: '#EF4444',
     letterSpacing: 1.5,
+  },
+  headerSubText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: '#A0A0B0',
+    letterSpacing: 0.5,
   },
   verdictCard: {
     alignItems: 'center' as const,
@@ -491,11 +496,11 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   actionText: {
-    fontSize: 15,
+    fontSize: 17,
     color: Colors.text,
-    lineHeight: 22,
+    lineHeight: 24,
     textAlign: 'center' as const,
-    fontWeight: '500' as const,
+    fontWeight: '700' as const,
   },
   buttonsArea: {
     gap: 12,
