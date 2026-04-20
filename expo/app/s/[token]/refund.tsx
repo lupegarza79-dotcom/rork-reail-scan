@@ -18,7 +18,7 @@ import {
   AlertTriangle,
   Scale,
   FileCheck,
-  Shield,
+  Plus,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
@@ -247,29 +247,33 @@ export default function RefundScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} testID="refund-back">
-            <ArrowLeft size={20} color={Colors.text} />
+          <TouchableOpacity style={styles.navBtn} onPress={() => router.back()} testID="refund-back" activeOpacity={0.7}>
+            <ArrowLeft size={18} color={Colors.text} />
+            <Text style={styles.navBtnText}>Back</Text>
           </TouchableOpacity>
           <View style={styles.topBarCenter}>
-            <Shield size={16} color={Colors.primary} />
             <Text style={styles.topBarTitle}>
               {isEs ? 'Kit de Reembolso' : 'Refund Kit'}
             </Text>
           </View>
-          <View style={styles.langRow}>
-            <TouchableOpacity
-              style={[styles.langChip, locale === 'en' && styles.langChipActive]}
-              onPress={() => setLocale('en')}
-            >
-              <Text style={[styles.langText, locale === 'en' && styles.langTextActive]}>EN</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.langChip, locale === 'es' && styles.langChipActive]}
-              onPress={() => setLocale('es')}
-            >
-              <Text style={[styles.langText, locale === 'es' && styles.langTextActive]}>ES</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/')} testID="refund-new-scan" activeOpacity={0.7}>
+            <Plus size={18} color={Colors.primary} />
+            <Text style={[styles.navBtnText, { color: Colors.primary }]}>New Scan</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.langBar}>
+          <TouchableOpacity
+            style={[styles.langChip, locale === 'en' && styles.langChipActive]}
+            onPress={() => setLocale('en')}
+          >
+            <Text style={[styles.langText, locale === 'en' && styles.langTextActive]}>EN</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.langChip, locale === 'es' && styles.langChipActive]}
+            onPress={() => setLocale('es')}
+          >
+            <Text style={[styles.langText, locale === 'es' && styles.langTextActive]}>ES</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -332,7 +336,7 @@ export default function RefundScreen() {
             </View>
 
             <View style={styles.footerArea}>
-              <Text style={styles.footerText}>REAiL Scan</Text>
+              <Text style={styles.footerText}>REAiL Wallet Shield</Text>
             </View>
           </View>
         </ScrollView>
@@ -360,11 +364,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
+  navBtn: {
+    flexDirection: 'row' as const,
     alignItems: 'center' as const,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  navBtnText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.text,
+  },
+  langBar: {
+    flexDirection: 'row' as const,
     justifyContent: 'center' as const,
+    gap: 4,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.backgroundTertiary,
   },
   topBarCenter: {
     flex: 1,
@@ -377,12 +396,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700' as const,
     color: Colors.text,
-  },
-  langRow: {
-    flexDirection: 'row' as const,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: 6,
-    padding: 2,
   },
   langChip: {
     paddingHorizontal: 10,

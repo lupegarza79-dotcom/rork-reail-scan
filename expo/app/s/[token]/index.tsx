@@ -98,6 +98,21 @@ function getHeaderTitle(verdict: Verdict): string {
   return '✅ Scan Complete';
 }
 
+function TopNav({ onBack, onNewScan }: { onBack: () => void; onNewScan: () => void }) {
+  return (
+    <View style={styles.topNav}>
+      <TouchableOpacity style={styles.topNavBtn} onPress={onBack} testID="nav-back" activeOpacity={0.7}>
+        <ArrowLeft size={18} color={Colors.text} />
+        <Text style={styles.topNavBtnText}>Back</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.topNavBtn} onPress={onNewScan} testID="nav-new-scan" activeOpacity={0.7}>
+        <Plus size={18} color={Colors.primary} />
+        <Text style={[styles.topNavBtnText, { color: Colors.primary }]}>New Scan</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function WalletShieldScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
@@ -293,8 +308,9 @@ export default function WalletShieldScreen() {
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
         <SafeAreaView style={styles.safeArea}>
+          <TopNav onBack={() => router.back()} onNewScan={() => router.replace('/')} />
           <View style={styles.centerContent}>
-            <OctagonAlert size={48} color={Colors.highRisk} />
+            <OctagonAlert size={48} color={Colors.unverified} />
             <Text style={styles.errorTitle}>Link Not Found</Text>
             <Text style={styles.errorSub}>It may have expired.</Text>
             <TouchableOpacity style={styles.retryBtn} onPress={() => refetch()} testID="retry-btn">
@@ -566,5 +582,24 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     color: Colors.textTertiary,
     letterSpacing: 0.5,
+  },
+  topNav: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  topNavBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  topNavBtnText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.text,
   },
 });

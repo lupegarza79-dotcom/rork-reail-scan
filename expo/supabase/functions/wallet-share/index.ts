@@ -48,7 +48,7 @@ function getClientIp(req: Request): string {
 
 function computeNextAction(badge: string | null, score: number | null, redFlags: string[]): string {
   if (!badge || score === null) {
-    return "Run a full scan to verify this link before clicking.";
+    return "Review carefully before paying.";
   }
   
   if (badge === "HIGH_RISK" || score < 40) {

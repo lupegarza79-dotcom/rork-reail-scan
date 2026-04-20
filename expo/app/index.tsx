@@ -150,7 +150,7 @@ export default function LandingScreen() {
 
             {error ? (
               <View style={styles.errorRow}>
-                <AlertCircle size={14} color={Colors.highRisk} />
+                <AlertCircle size={14} color={Colors.unverified} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -173,7 +173,7 @@ export default function LandingScreen() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>No login. No app. Just paste.</Text>
+            <Text style={styles.footerText}>REAiL Wallet Shield · No login. Just paste.</Text>
           </View>
         </View>
       </SafeAreaView>
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   inputRowError: {
-    borderColor: Colors.highRisk,
+    borderColor: Colors.unverified,
   },
   input: {
     flex: 1,
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
-    color: Colors.highRisk,
+    color: Colors.unverified,
   },
   scanBtn: {
     backgroundColor: Colors.primary,

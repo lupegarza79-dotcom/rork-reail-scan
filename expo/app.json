@@ -31,7 +31,7 @@
       [
         "expo-router",
         {
-          "origin": "https://app.example.com/"
+          "origin": "https://reail.app/"
         }
       ],
       "expo-font",
