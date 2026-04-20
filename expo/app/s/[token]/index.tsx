@@ -53,7 +53,7 @@ const VERDICT_MAP: Record<Verdict, VerdictConfig> = {
   CAUTION: {
     verdict: 'CAUTION',
     emoji: '⚠️',
-    headline: 'CAUTION',
+    headline: 'REVIEW BEFORE PAYING',
     color: '#F59E0B',
     bg: 'rgba(245, 158, 11, 0.10)',
     badgeLabel: 'CAUTION',
@@ -62,7 +62,7 @@ const VERDICT_MAP: Record<Verdict, VerdictConfig> = {
   OK: {
     verdict: 'OK',
     emoji: '✅',
-    headline: 'OK TO PROCEED',
+    headline: 'LOOKS SAFE',
     color: '#10B981',
     bg: 'rgba(16, 185, 129, 0.10)',
     badgeLabel: 'OK',
@@ -82,14 +82,20 @@ function computeVerdict(data: WalletShareData): Verdict {
 
 function getActionText(verdict: Verdict): string {
   if (verdict === 'STOP') return '👉 Do NOT enter your card';
-  if (verdict === 'CAUTION') return '👉 Do NOT enter your card yet';
+  if (verdict === 'CAUTION') return '👉 Review carefully before paying';
   return 'No significant risk signals detected.';
 }
 
 function getSubText(verdict: Verdict): string {
   if (verdict === 'STOP') return 'High risk signals detected';
-  if (verdict === 'CAUTION') return 'Caution signals detected';
+  if (verdict === 'CAUTION') return 'Some signals need your attention';
   return 'No risk signals detected';
+}
+
+function getHeaderTitle(verdict: Verdict): string {
+  if (verdict === 'STOP') return '🛑 STOP PAYING';
+  if (verdict === 'CAUTION') return '⚠️ Review Before Paying';
+  return '✅ Scan Complete';
 }
 
 export default function WalletShieldScreen() {
@@ -135,25 +141,34 @@ export default function WalletShieldScreen() {
 
   useEffect(() => {
     if (Platform.OS === 'web' && data && config) {
-      document.title = `${config.emoji} ${config.headline} — REAiL Scan`;
+      document.title = `${config.emoji} ${config.headline} — REAiL Wallet Shield`;
 
-      const setMeta = (property: string, content: string) => {
-        let tag = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
+      const setMeta = (attr: 'property' | 'name', key: string, content: string) => {
+        let tag = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null;
         if (!tag) {
           tag = document.createElement('meta');
-          tag.setAttribute('property', property);
+          tag.setAttribute(attr, key);
           document.head.appendChild(tag);
         }
         tag.content = content;
       };
 
-      const ogTitle = '🛑 STOP PAYING — REAiL';
-      const ogDesc = 'High risk signals detected. Check before you pay.';
+      const isStop = verdict === 'STOP';
+      const ogTitle = isStop
+        ? '🛑 STOP PAYING — REAiL Wallet Shield'
+        : `${config.emoji} ${config.headline} — REAiL Wallet Shield`;
+      const ogDesc = isStop
+        ? 'High risk signals detected. Check before you pay.'
+        : 'Scan any payment link before you pay. REAiL Wallet Shield.';
 
-      setMeta('og:title', ogTitle);
-      setMeta('og:description', ogDesc);
-      setMeta('og:type', 'website');
-      setMeta('og:url', window.location.href);
+      setMeta('name', 'description', ogDesc);
+      setMeta('property', 'og:title', ogTitle);
+      setMeta('property', 'og:description', ogDesc);
+      setMeta('property', 'og:type', 'website');
+      setMeta('property', 'og:url', window.location.href);
+      setMeta('name', 'twitter:card', 'summary');
+      setMeta('name', 'twitter:title', ogTitle);
+      setMeta('name', 'twitter:description', ogDesc);
     }
   }, [data, config, verdict]);
 
@@ -176,12 +191,17 @@ export default function WalletShieldScreen() {
       ? window.location.href
       : `https://reail.app/s/${token}`;
 
-    const message = `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`;
+    const message = verdict === 'STOP'
+      ? `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`
+      : `${config.emoji} REAiL Wallet Shield scan result: ${shareUrl}`;
+    const shareTitle = verdict === 'STOP'
+      ? '🛑 STOP PAYING — REAiL'
+      : `${config.emoji} ${config.headline} — REAiL`;
 
     try {
       if (Platform.OS === 'web') {
         if (typeof navigator !== 'undefined' && navigator.share) {
-          await navigator.share({ title: '🛑 STOP PAYING — REAiL', text: message, url: shareUrl });
+          await navigator.share({ title: shareTitle, text: message, url: shareUrl });
         } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
           await navigator.clipboard.writeText(message);
         }
@@ -191,7 +211,7 @@ export default function WalletShieldScreen() {
     } catch (err) {
       console.log('[Shield] Share error:', err);
     }
-  }, [token]);
+  }, [token, verdict, config]);
 
   const handleAlreadyPaid = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -225,7 +245,7 @@ export default function WalletShieldScreen() {
         <SafeAreaView style={styles.safeArea}>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
             <View style={styles.headerStrip}>
-              <Text style={styles.headerStripText}>🛑 STOP PAYING</Text>
+              <Text style={[styles.headerStripText, { color: fallbackVerdict.color }]}>⚠️ Review Before Paying</Text>
             </View>
             <View style={[styles.verdictCard, { borderColor: fallbackVerdict.color, backgroundColor: fallbackVerdict.bg }]}>
               <View style={[styles.verdictIconWrap, { backgroundColor: fallbackVerdict.color }]}>
@@ -299,7 +319,7 @@ export default function WalletShieldScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerStrip}>
-            <Text style={styles.headerStripText}>🛑 STOP PAYING</Text>
+            <Text style={[styles.headerStripText, { color: config.color }]}>{getHeaderTitle(verdict)}</Text>
             <Text style={styles.headerSubText}>{getSubText(verdict)}</Text>
           </View>
 
@@ -431,10 +451,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerStripText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900' as const,
-    color: '#EF4444',
-    letterSpacing: 1.5,
+    color: Colors.primary,
+    letterSpacing: 1.2,
+    textAlign: 'center' as const,
   },
   headerSubText: {
     fontSize: 15,

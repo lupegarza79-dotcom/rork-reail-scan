@@ -119,11 +119,11 @@ export default function LandingScreen() {
         <View style={styles.content}>
           <View style={styles.hero}>
             <Animated.View style={[styles.shieldWrap, { opacity: shieldGlow }]}>
-              <Shield size={48} color={Colors.highRisk} strokeWidth={2} />
+              <Shield size={48} color={Colors.primary} strokeWidth={2} />
             </Animated.View>
             <Text style={styles.title}>REAiL</Text>
             <Text style={styles.subtitle}>Wallet Shield</Text>
-            <Text style={styles.tagline}>Before paying — STOP PAYING.</Text>
+            <Text style={styles.tagline}>Scan any link before you pay.</Text>
           </View>
 
           <View style={styles.inputArea}>
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     fontWeight: '600' as const,
-    color: Colors.highRisk,
+    color: Colors.primary,
     letterSpacing: 1,
     marginTop: 4,
   },
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
     color: Colors.highRisk,
   },
   scanBtn: {
-    backgroundColor: Colors.highRisk,
+    backgroundColor: Colors.primary,
     height: 56,
     borderRadius: 14,
     alignItems: 'center' as const,
