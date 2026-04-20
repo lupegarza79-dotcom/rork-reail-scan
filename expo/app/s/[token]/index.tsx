@@ -189,7 +189,7 @@ export default function WalletShieldScreen() {
 
     const shareUrl = Platform.OS === 'web'
       ? window.location.href
-      : `https://reail.app/s/${token}`;
+      : `https://app.example.com/s/${token}`;
 
     const message = verdict === 'STOP'
       ? `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`

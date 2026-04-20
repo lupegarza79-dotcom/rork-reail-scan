@@ -60,7 +60,7 @@
 
     let reportLink = "";
     if (scanId) {
-      reportLink = `<a class="reail-badge__report-link" href="https://reail.app/r/${scanId}" target="_blank" rel="noopener">View Full Report →</a>`;
+      reportLink = `<a class="reail-badge__report-link" href="https://app.example.com/r/${scanId}" target="_blank" rel="noopener">View Full Report →</a>`;
     }
 
     badge.innerHTML =

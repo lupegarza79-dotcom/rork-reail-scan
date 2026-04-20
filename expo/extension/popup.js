@@ -69,7 +69,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       );
 
       if (scanId) {
-        fullReportLink.href = `https://reail.app/r/${scanId}`;
+        fullReportLink.href = `https://app.example.com/r/${scanId}`;
         actionsEl.style.display = "flex";
       } else {
         actionsEl.style.display = "none";

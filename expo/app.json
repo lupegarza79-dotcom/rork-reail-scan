@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "REAiL Wallet Shield",
-    "slug": "xhs9qov5t0pnfshy4a0y0",
+    "slug": "reail-wallet-shield",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,18 +11,18 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#050508"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.xhs9qov5t0pnfshy4a0y0"
+      "bundleIdentifier": "com.reail.walletshield"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#050508"
       },
-      "package": "app.rork.xhs9qov5t0pnfshy4a0y0"
+      "package": "com.reail.walletshield"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -31,7 +31,7 @@
       [
         "expo-router",
         {
-          "origin": "https://reail.app/"
+          "origin": "https://app.example.com/"
         }
       ],
       "expo-font",
