@@ -22,6 +22,8 @@ import {
   AlertTriangle,
   RefreshCw,
   OctagonAlert,
+  ArrowLeft,
+  Plus,
 } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
@@ -95,7 +97,7 @@ function getSubText(verdict: Verdict): string {
 function getHeaderTitle(verdict: Verdict): string {
   if (verdict === 'STOP') return '🛑 STOP PAYING';
   if (verdict === 'CAUTION') return '⚠️ Review Before Paying';
-  return '✅ Scan Complete';
+  return '✅ Looks Safe';
 }
 
 function TopNav({ onBack, onNewScan }: { onBack: () => void; onNewScan: () => void }) {
@@ -168,13 +170,16 @@ export default function WalletShieldScreen() {
         tag.content = content;
       };
 
-      const isStop = verdict === 'STOP';
-      const ogTitle = isStop
+      const ogTitle = verdict === 'STOP'
         ? '🛑 STOP PAYING — REAiL Wallet Shield'
-        : `${config.emoji} ${config.headline} — REAiL Wallet Shield`;
-      const ogDesc = isStop
+        : verdict === 'CAUTION'
+        ? '⚠️ Review Before Paying — REAiL Wallet Shield'
+        : '✅ Looks Safe — REAiL Wallet Shield';
+      const ogDesc = verdict === 'STOP'
         ? 'High risk signals detected. Check before you pay.'
-        : 'Scan any payment link before you pay. REAiL Wallet Shield.';
+        : verdict === 'CAUTION'
+        ? 'Some signals need your attention. Review before paying.'
+        : 'Scan any link before you pay. REAiL Wallet Shield.';
 
       setMeta('name', 'description', ogDesc);
       setMeta('property', 'og:title', ogTitle);
@@ -204,14 +209,18 @@ export default function WalletShieldScreen() {
 
     const shareUrl = Platform.OS === 'web'
       ? window.location.href
-      : `https://app.example.com/s/${token}`;
+      : `https://reail.app/s/${token}`;
 
     const message = verdict === 'STOP'
       ? `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`
-      : `${config.emoji} REAiL Wallet Shield scan result: ${shareUrl}`;
+      : verdict === 'CAUTION'
+      ? `⚠️ REAiL Wallet Shield suggests reviewing this link before paying: ${shareUrl}`
+      : `✅ Scanned with REAiL Wallet Shield: ${shareUrl}`;
     const shareTitle = verdict === 'STOP'
-      ? '🛑 STOP PAYING — REAiL'
-      : `${config.emoji} ${config.headline} — REAiL`;
+      ? '🛑 STOP PAYING — REAiL Wallet Shield'
+      : verdict === 'CAUTION'
+      ? '⚠️ Review Before Paying — REAiL Wallet Shield'
+      : '✅ Looks Safe — REAiL Wallet Shield';
 
     try {
       if (Platform.OS === 'web') {
@@ -258,6 +267,7 @@ export default function WalletShieldScreen() {
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
         <SafeAreaView style={styles.safeArea}>
+          <TopNav onBack={() => router.back()} onNewScan={() => router.replace('/')} />
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
             <View style={styles.headerStrip}>
               <Text style={[styles.headerStripText, { color: fallbackVerdict.color }]}>⚠️ Review Before Paying</Text>
@@ -281,7 +291,7 @@ export default function WalletShieldScreen() {
                 testID="share-btn"
               >
                 <Share2 size={20} color="white" strokeWidth={2.5} />
-                <Text style={styles.shareBtnText}>Share Warning</Text>
+                <Text style={styles.shareBtnText}>Share Caution</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.paidBtn}
@@ -295,7 +305,7 @@ export default function WalletShieldScreen() {
               </TouchableOpacity>
             </View>
             <View style={styles.footer}>
-              <Text style={styles.footerBrand}>REAiL Scan</Text>
+              <Text style={styles.footerBrand}>REAiL Wallet Shield</Text>
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -329,6 +339,7 @@ export default function WalletShieldScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safeArea}>
+        <TopNav onBack={() => router.back()} onNewScan={() => router.replace('/')} />
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
@@ -380,7 +391,7 @@ export default function WalletShieldScreen() {
               testID="share-btn"
             >
               <Share2 size={20} color="white" strokeWidth={2.5} />
-              <Text style={styles.shareBtnText}>Share Warning</Text>
+              <Text style={styles.shareBtnText}>{verdict === 'STOP' ? 'Share Warning' : verdict === 'CAUTION' ? 'Share Caution' : 'Share Result'}</Text>
             </TouchableOpacity>
 
             {verdict !== 'OK' && (
@@ -398,7 +409,7 @@ export default function WalletShieldScreen() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerBrand}>REAiL Scan</Text>
+            <Text style={styles.footerBrand}>REAiL Wallet Shield</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
