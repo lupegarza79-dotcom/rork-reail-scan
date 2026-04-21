@@ -18,6 +18,7 @@ import { useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { createShareLink } from '@/utils/walletShare';
+import { getRefToken } from '@/utils/tracking';
 
 function isValidUrl(text: string): boolean {
   const trimmed = text.trim();
@@ -106,6 +107,12 @@ export default function LandingScreen() {
       Animated.timing(pulseAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
       Animated.timing(pulseAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
     ]).start();
+
+    getRefToken().then((ref) => {
+      if (ref) {
+        console.log('SCAN FROM REF:', ref);
+      }
+    });
 
     scanMutation.mutate(url);
   }, [url, scanMutation, pulseAnim]);

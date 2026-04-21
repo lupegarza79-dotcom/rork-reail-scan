@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { captureRefFromUrl } from "@/utils/tracking";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -20,6 +21,7 @@ function RootLayoutNav() {
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+    captureRefFromUrl();
   }, []);
 
   return (

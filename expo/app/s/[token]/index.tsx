@@ -136,6 +136,12 @@ export default function WalletShieldScreen() {
   const config = VERDICT_MAP[verdict];
 
   useEffect(() => {
+    if (token) {
+      console.log('RESULT OPEN:', token);
+    }
+  }, [token]);
+
+  useEffect(() => {
     if (verdict === 'STOP') {
       const loop = Animated.loop(
         Animated.sequence([
@@ -207,9 +213,12 @@ export default function WalletShieldScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    const shareUrl = Platform.OS === 'web'
-      ? window.location.href
-      : `https://reail.app/s/${token}`;
+    const baseUrl = Platform.OS === 'web' && typeof window !== 'undefined'
+      ? `${window.location.origin}`
+      : 'https://reail.app';
+    const shareUrl = `${baseUrl}/s/${token}?ref=${token}`;
+
+    console.log('SHARE CLICK:', token);
 
     const message = verdict === 'STOP'
       ? `🛑 REAiL detected risk in this link. Check before you pay: ${shareUrl}`
