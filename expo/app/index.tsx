@@ -66,15 +66,58 @@ export default function LandingScreen() {
 
   const scanMutation = useMutation({
     mutationFn: async (inputUrl: string) => {
-      console.log('[Landing] Scanning:', inputUrl);
-      const normalized = normalizeUrl(inputUrl);
-      const result = await createShareLink(normalized);
-      if (!result) {
-        throw new Error('Scan failed');
+      const trimmed = inputUrl.trim();
+      console.log('[Landing] Scanning:', trimmed);
+      let parsed: URL;
+      try {
+        parsed = new URL(trimmed);
+      } catch (e) {
+        console.log('[Landing] Invalid URL:', e);
+        return null;
       }
-      return result;
+
+      const fullUrl = parsed.toString();
+      const response = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: fullUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        console.log('[Landing] /api/scan not ok:', response.status, data);
+        return null;
+      }
+
+      const b64 = typeof btoa !== 'undefined'
+        ? btoa(unescape(encodeURIComponent(fullUrl)))
+        : Buffer.from(fullUrl, 'utf-8').toString('base64');
+      const token = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      const payload = {
+        url: fullUrl,
+        domain: data.domain ?? parsed.hostname,
+        isHttps: data.isHttps ?? (parsed.protocol === 'https:'),
+        score: data.score,
+        verdict: data.verdict,
+        reasons: data.reasons,
+        createdAt: Date.now(),
+      };
+
+      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+        try {
+          window.localStorage.setItem(`scan:${token}`, JSON.stringify(payload));
+        } catch (e) {
+          console.log('[Landing] localStorage set failed:', e);
+        }
+      }
+
+      return { token };
     },
     onSuccess: (data) => {
+      if (!data) {
+        console.log('[Landing] Scan stopped safely');
+        return;
+      }
       console.log('[Landing] Scan success, token:', data.token);
       setError('');
       router.push(`/s/${data.token}`);
