@@ -68,9 +68,10 @@ export default function LandingScreen() {
     mutationFn: async (inputUrl: string) => {
       const trimmed = inputUrl.trim();
       console.log('[Landing] Scanning:', trimmed);
+      const normalized = normalizeUrl(trimmed);
       let parsed: URL;
       try {
-        parsed = new URL(trimmed);
+        parsed = new URL(normalized);
       } catch (e) {
         console.log('[Landing] Invalid URL:', e);
         return null;
