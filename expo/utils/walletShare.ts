@@ -37,17 +37,17 @@ export interface CreateShareResponse {
   token: string;
   share_url: string;
   original_url: string;
-  normalized_url?: string;
+  normalized_url: string;
   domain: string;
-  badge: BadgeType | null;
-  score: number | null;
+  badge: BadgeType;
+  score: number;
   top_red_flags: string[];
   next_action: string;
   evidence: EvidenceCard[];
   expires_at: string;
   scan_id: string;
   cache_hit: boolean;
-  needs_full_scan: boolean;
+  needs_full_scan: false;
 }
 
 export async function createShareLink(
