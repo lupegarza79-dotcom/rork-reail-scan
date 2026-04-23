@@ -134,7 +134,7 @@ serve(async (req: Request) => {
       const score = scan.score;
       const topRedFlags = Array.isArray(scan.top_red_flags) ? scan.top_red_flags : [];
       const nextAction = scan.next_action;
-      const scanId = (scan as { scan_id?: string }).scan_id ?? null;
+      const scanId = (scan as { scan_id?: string }).scan_id ?? crypto.randomUUID();
 
       const token = generateToken(TOKEN_LENGTH);
       const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
