@@ -92,16 +92,37 @@ serve(async (req: Request) => {
 
       await supabase.rpc("increment_share_view", { p_token: token });
 
+      let evidence: unknown[] = [];
+      if (shareLink.normalized_url) {
+        const { data: cached } = await supabase
+          .from("scan_cache")
+          .select("value")
+          .eq("key", `scan:${shareLink.normalized_url}`)
+          .maybeSingle();
+        if (cached?.value && Array.isArray(cached.value.evidence)) {
+          evidence = cached.value.evidence;
+        }
+      }
+      if (evidence.length === 0 && shareLink.scan_id) {
+        const { data: evRows } = await supabase
+          .from("scan_evidence")
+          .select("provider, provider_label, status, summary, weight, score_impact, payload, card_title, card_status, card_payload")
+          .eq("scan_id", shareLink.scan_id);
+        if (Array.isArray(evRows)) evidence = evRows;
+      }
+
       return jsonResponse({
         ok: true,
         token: shareLink.token,
         original_url: shareLink.original_url,
+        normalized_url: shareLink.normalized_url,
         domain: shareLink.domain,
         badge: shareLink.badge,
         score: shareLink.score,
         top_red_flags: shareLink.top_red_flags || [],
         next_action: shareLink.next_action,
         scan_id: shareLink.scan_id,
+        evidence,
         created_at: shareLink.created_at,
         expires_at: shareLink.expires_at,
         view_count: (shareLink.view_count || 0) + 1,
@@ -135,6 +156,7 @@ serve(async (req: Request) => {
       const topRedFlags = Array.isArray(scan.top_red_flags) ? scan.top_red_flags : [];
       const nextAction = scan.next_action;
       const scanId = (scan as { scan_id?: string }).scan_id ?? crypto.randomUUID();
+      const evidence = Array.isArray(scan.evidence) ? scan.evidence : [];
 
       const token = generateToken(TOKEN_LENGTH);
       const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
@@ -179,6 +201,7 @@ serve(async (req: Request) => {
         score,
         top_red_flags: topRedFlags,
         next_action: nextAction,
+        evidence,
         expires_at: expiresAt.toISOString(),
         scan_id: scanId,
         cache_hit: scan.cache_hit,

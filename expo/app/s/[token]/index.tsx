@@ -24,11 +24,14 @@ import {
   OctagonAlert,
   ArrowLeft,
   Plus,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
 } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { resolveShareLink, WalletShareData } from '@/utils/walletShare';
+import { resolveShareLink, WalletShareData, EvidenceCard, EvidenceStatus } from '@/utils/walletShare';
 
 type Verdict = 'STOP' | 'CAUTION' | 'OK';
 
@@ -73,13 +76,21 @@ const VERDICT_MAP: Record<Verdict, VerdictConfig> = {
 };
 
 function computeVerdict(data: WalletShareData): Verdict {
-  const score = data.score ?? 50;
   const badge = data.badge;
-
-  if (score <= 35) return 'STOP';
-  if (badge === 'HIGH_RISK' || badge === 'UNVERIFIED') return 'STOP';
-  if (score >= 70) return 'OK';
+  if (badge === 'HIGH_RISK') return 'STOP';
+  if (badge === 'VERIFIED') return 'OK';
+  if (badge === 'UNVERIFIED') return 'CAUTION';
+  const score = data.score ?? 50;
+  if (score < 50) return 'STOP';
+  if (score >= 80) return 'OK';
   return 'CAUTION';
+}
+
+function evidenceVisual(status: EvidenceStatus): { color: string; label: string; Icon: typeof CheckCircle2 } {
+  if (status === 'pass') return { color: '#10B981', label: 'PASS', Icon: CheckCircle2 };
+  if (status === 'warn') return { color: '#F59E0B', label: 'WARN', Icon: AlertTriangle };
+  if (status === 'fail') return { color: '#EF4444', label: 'FAIL', Icon: XCircle };
+  return { color: '#6B7280', label: 'UNAVAILABLE', Icon: HelpCircle };
 }
 
 function getActionText(verdict: Verdict): string {
@@ -176,16 +187,18 @@ export default function WalletShieldScreen() {
         tag.content = content;
       };
 
+      const domainLabel = data.domain || 'this link';
+      const firstReason = (data.top_red_flags && data.top_red_flags[0]) || '';
       const ogTitle = verdict === 'STOP'
-        ? '🛑 STOP PAYING — REAiL Wallet Shield'
+        ? `🛑 STOP — ${domainLabel} flagged by REAiL`
         : verdict === 'CAUTION'
-        ? '⚠️ Review Before Paying — REAiL Wallet Shield'
-        : '✅ Looks Safe — REAiL Wallet Shield';
+        ? `⚠️ WAIT — ${domainLabel} unverified on REAiL`
+        : `✅ PROCEED — ${domainLabel} looks safe on REAiL`;
       const ogDesc = verdict === 'STOP'
-        ? 'High risk signals detected. Check before you pay.'
+        ? `High risk on ${domainLabel}.${firstReason ? ' ' + firstReason + '.' : ''} Check before you pay.`
         : verdict === 'CAUTION'
-        ? 'Some signals need your attention. Review before paying.'
-        : 'Scan any link before you pay. REAiL Wallet Shield.';
+        ? `${domainLabel} couldn't be fully verified.${firstReason ? ' ' + firstReason + '.' : ''} Review before paying.`
+        : `${domainLabel} shows no risk signals. Always verify before paying.`;
 
       setMeta('name', 'description', ogDesc);
       setMeta('property', 'og:title', ogTitle);
@@ -391,6 +404,34 @@ export default function WalletShieldScreen() {
           <View style={styles.actionCard}>
             <Text style={styles.actionText}>{actionText}</Text>
           </View>
+
+          {Array.isArray(data.evidence) && data.evidence.length > 0 && (
+            <View style={styles.evidenceSection} testID="evidence-pack">
+              <Text style={styles.evidenceTitle}>Why REAiL said this</Text>
+              <View style={styles.evidenceList}>
+                {data.evidence.slice(0, 4).map((card: EvidenceCard, idx: number) => {
+                  const v = evidenceVisual(card.status);
+                  const EvIcon = v.Icon;
+                  return (
+                    <View key={`${card.provider}-${idx}`} style={styles.evidenceCard} testID={`evidence-${card.provider}`}>
+                      <View style={[styles.evidenceIconWrap, { backgroundColor: v.color + '22' }]}>
+                        <EvIcon size={18} color={v.color} strokeWidth={2.5} />
+                      </View>
+                      <View style={styles.evidenceBody}>
+                        <View style={styles.evidenceHeaderRow}>
+                          <Text style={styles.evidenceProvider} numberOfLines={1}>{card.provider_label}</Text>
+                          <View style={[styles.evidenceStatusPill, { backgroundColor: v.color }]}>
+                            <Text style={styles.evidenceStatusText}>{v.label}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.evidenceSummary} numberOfLines={2}>{card.summary}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
           <View style={styles.buttonsArea}>
             <TouchableOpacity
@@ -621,5 +662,70 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.text,
+  },
+  evidenceSection: {
+    marginBottom: 24,
+  },
+  evidenceTitle: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.textSecondary,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase' as const,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  evidenceList: {
+    gap: 10,
+  },
+  evidenceCard: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  evidenceIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginTop: 1,
+  },
+  evidenceBody: {
+    flex: 1,
+    gap: 4,
+  },
+  evidenceHeaderRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+  },
+  evidenceProvider: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  evidenceStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  evidenceStatusText: {
+    fontSize: 10,
+    fontWeight: '800' as const,
+    color: 'white',
+    letterSpacing: 0.8,
+  },
+  evidenceSummary: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
   },
 });

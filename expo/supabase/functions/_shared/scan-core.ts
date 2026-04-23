@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Shared scan core — used by quick-scan (HTTP wrapper) and wallet-share (internal).
 // Guarantees an evidence-backed verdict on every call: badge, score, next_action
-// are never null, top_red_flags is always an array.
+// are never null, top_red_flags is always an array, evidence is always an array.
 
 import { webRiskLookup } from "./webrisk.ts";
 
@@ -16,6 +16,9 @@ export interface EvidenceCard {
   weight: number;
   score_impact: number;
   payload: Record<string, unknown>;
+  card_title: string;
+  card_status: EvidenceStatus;
+  card_payload: Record<string, unknown>;
 }
 
 export interface ScanCoreResult {
@@ -49,6 +52,39 @@ const TRACKING_KEYS = new Set([
   "vero_id",
   "vero_conv",
 ]);
+
+const SHORTLINK_DOMAINS = new Set([
+  "bit.ly", "t.co", "goo.gl", "tinyurl.com", "is.gd", "ow.ly", "buff.ly",
+  "rebrand.ly", "cutt.ly", "rb.gy", "s.id", "tny.im", "shorturl.at", "tiny.cc",
+  "lnkd.in", "t.ly", "shrtco.de", "bl.ink", "soo.gd", "clck.ru", "v.gd",
+  "short.io", "snip.ly", "bit.do", "adf.ly", "mcaf.ee",
+]);
+
+const SUSPICIOUS_TLDS = new Set([
+  "zip", "mov", "xyz", "top", "click", "link", "tk", "ml", "ga", "cf", "gq",
+  "work", "loan", "win", "bid", "stream", "download", "review", "country",
+  "kim", "cricket", "science", "party", "gdn", "men", "rest", "lol",
+]);
+
+const SUSPICIOUS_QUERY_KEYS = new Set([
+  "token", "session", "sid", "auth", "login", "verify", "wallet", "seed",
+  "otp", "code", "confirm", "account", "unlock", "reset", "secure",
+]);
+
+const BAIT_PATH_PATTERNS = [
+  /login/i, /sign-?in/i, /verify/i, /secure/i, /account/i, /update/i,
+  /confirm/i, /wallet/i, /seed/i, /recover/i, /unlock/i, /suspend/i,
+  /restricted/i, /authenticat/i, /billing/i, /reset-?password/i,
+];
+
+const KNOWN_BRANDS = [
+  "google", "apple", "microsoft", "amazon", "paypal", "facebook", "instagram",
+  "whatsapp", "netflix", "coinbase", "binance", "metamask", "uniswap",
+  "opensea", "discord", "twitter", "x", "linkedin", "github", "dropbox",
+  "icloud", "outlook", "yahoo", "tiktok", "youtube", "revolut", "wise",
+  "chase", "wellsfargo", "citibank", "hsbc", "barclays", "santander",
+  "stripe", "square", "cashapp", "venmo", "zelle",
+];
 
 export function normalizeUrl(raw: string): string {
   if (!raw || typeof raw !== "string") return "";
@@ -91,11 +127,55 @@ export function extractDomain(url: string): string {
   }
 }
 
+function getTld(domain: string): string {
+  const parts = domain.split(".");
+  return parts.length > 0 ? parts[parts.length - 1].toLowerCase() : "";
+}
+
+function getRegistrable(domain: string): string {
+  const parts = domain.split(".");
+  if (parts.length <= 2) return domain;
+  return parts.slice(-2).join(".");
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const m: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) m[i][0] = i;
+  for (let j = 0; j <= b.length; j++) m[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + cost);
+    }
+  }
+  return m[a.length][b.length];
+}
+
+function detectLookalikeBrand(domain: string): { brand: string; distance: number } | null {
+  const registrable = getRegistrable(domain);
+  const base = registrable.split(".")[0].toLowerCase();
+  if (!base || base.length < 3) return null;
+  for (const brand of KNOWN_BRANDS) {
+    if (base === brand) return null;
+    const d = levenshtein(base, brand);
+    if (d > 0 && d <= 2 && Math.abs(base.length - brand.length) <= 2) {
+      return { brand, distance: d };
+    }
+    if (base.includes(brand) && base !== brand && base.length <= brand.length + 10) {
+      return { brand, distance: 0 };
+    }
+  }
+  return null;
+}
+
 export function computeNextAction(badge: Badge, score: number, redFlags: string[]): string {
-  if (badge === "HIGH_RISK" || score < 40) {
+  if (badge === "HIGH_RISK" || score < 50) {
     return "Do NOT click this link. It shows signs of a scam or phishing attempt.";
   }
-  if (badge === "UNVERIFIED" || score < 70) {
+  if (badge === "UNVERIFIED" || score < 80) {
     if (redFlags.length > 0) {
       return "Proceed with caution. Verify the sender and avoid entering personal info.";
     }
@@ -108,6 +188,15 @@ function generateTraceId(): string {
   return `trace_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function finalize(card: Omit<EvidenceCard, "card_title" | "card_status" | "card_payload">): EvidenceCard {
+  return {
+    ...card,
+    card_title: card.provider_label,
+    card_status: card.status,
+    card_payload: { summary: card.summary, ...card.payload },
+  };
+}
+
 async function runWebRisk(url: string): Promise<EvidenceCard> {
   try {
     const result = await Promise.race([
@@ -117,18 +206,18 @@ async function runWebRisk(url: string): Promise<EvidenceCard> {
 
     const threats = result.threatTypes || [];
     if (threats.length === 0) {
-      return {
+      return finalize({
         provider: "google_webrisk",
         provider_label: "Google Web Risk",
         status: "pass",
         summary: "No known threats detected by Google Web Risk",
         weight: 40,
-        score_impact: 35,
+        score_impact: 15,
         payload: { threatTypes: [], verdict: "clear" },
-      };
+      });
     }
     const isDanger = threats.includes("MALWARE") || threats.includes("SOCIAL_ENGINEERING");
-    return {
+    return finalize({
       provider: "google_webrisk",
       provider_label: "Google Web Risk",
       status: isDanger ? "fail" : "warn",
@@ -136,12 +225,12 @@ async function runWebRisk(url: string): Promise<EvidenceCard> {
         ? `Flagged by Google Web Risk: ${threats.join(", ")}`
         : `Listed by Google Web Risk: ${threats.join(", ")}`,
       weight: 40,
-      score_impact: isDanger ? -50 : -25,
-      payload: { threatTypes: threats, verdict: isDanger ? "danger" : "warning" },
-    };
+      score_impact: isDanger ? -70 : -25,
+      payload: { threatTypes: threats, verdict: isDanger ? "danger" : "warning", critical: isDanger },
+    });
   } catch (err) {
     console.error("[scan-core] WebRisk failed (fail-soft):", err);
-    return {
+    return finalize({
       provider: "google_webrisk",
       provider_label: "Google Web Risk",
       status: "unknown",
@@ -149,7 +238,7 @@ async function runWebRisk(url: string): Promise<EvidenceCard> {
       weight: 40,
       score_impact: 0,
       payload: { error: "unavailable", verdict: "unknown" },
-    };
+    });
   }
 }
 
@@ -162,7 +251,7 @@ async function runUrlhaus(url: string): Promise<EvidenceCard> {
       signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {
-      return {
+      return finalize({
         provider: "urlhaus",
         provider_label: "URLhaus (abuse.ch)",
         status: "unknown",
@@ -170,7 +259,7 @@ async function runUrlhaus(url: string): Promise<EvidenceCard> {
         weight: 30,
         score_impact: 0,
         payload: { error: "api_error", verdict: "unknown" },
-      };
+      });
     }
     const data = await resp.json();
     const listed = data?.query_status !== "no_results" && !!data?.url_status;
@@ -178,18 +267,18 @@ async function runUrlhaus(url: string): Promise<EvidenceCard> {
     const threat = data?.threat || null;
 
     if (!listed) {
-      return {
+      return finalize({
         provider: "urlhaus",
         provider_label: "URLhaus (abuse.ch)",
         status: "pass",
         summary: "Not listed in URLhaus malware database",
         weight: 30,
-        score_impact: 25,
+        score_impact: 10,
         payload: { listed: false, verdict: "clear" },
-      };
+      });
     }
     const active = urlStatus === "online";
-    return {
+    return finalize({
       provider: "urlhaus",
       provider_label: "URLhaus (abuse.ch)",
       status: active ? "fail" : "warn",
@@ -197,12 +286,12 @@ async function runUrlhaus(url: string): Promise<EvidenceCard> {
         ? `Active malware listing in URLhaus${threat ? ` (${threat})` : ""}`
         : `Previously listed in URLhaus${threat ? ` (${threat})` : ""}`,
       weight: 30,
-      score_impact: active ? -40 : -15,
-      payload: { listed: true, url_status: urlStatus, threat, verdict: active ? "danger" : "warning" },
-    };
+      score_impact: active ? -60 : -20,
+      payload: { listed: true, url_status: urlStatus, threat, verdict: active ? "danger" : "warning", critical: active },
+    });
   } catch (err) {
     console.error("[scan-core] URLhaus failed (fail-soft):", err);
-    return {
+    return finalize({
       provider: "urlhaus",
       provider_label: "URLhaus (abuse.ch)",
       status: "unknown",
@@ -210,7 +299,261 @@ async function runUrlhaus(url: string): Promise<EvidenceCard> {
       weight: 30,
       score_impact: 0,
       payload: { error: "unavailable", verdict: "unknown" },
-    };
+    });
+  }
+}
+
+async function runLinkIntel(url: string): Promise<EvidenceCard> {
+  try {
+    const parsed = new URL(url);
+    const domain = parsed.hostname.replace(/^www\./, "");
+    const registrable = getRegistrable(domain);
+
+    const isShortlink = SHORTLINK_DOMAINS.has(domain) || SHORTLINK_DOMAINS.has(registrable);
+
+    const suspiciousParams: string[] = [];
+    parsed.searchParams.forEach((_, key) => {
+      if (SUSPICIOUS_QUERY_KEYS.has(key.toLowerCase())) suspiciousParams.push(key);
+    });
+
+    const baitMatches: string[] = [];
+    for (const re of BAIT_PATH_PATTERNS) {
+      const m = parsed.pathname.match(re);
+      if (m) baitMatches.push(m[0].toLowerCase());
+    }
+
+    let redirectHops = 0;
+    let finalUrl = url;
+    try {
+      const chain: string[] = [];
+      let current = url;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      try {
+        for (let i = 0; i < 5; i++) {
+          const r = await fetch(current, {
+            method: "HEAD",
+            redirect: "manual",
+            signal: ctrl.signal,
+          });
+          chain.push(current);
+          const status = r.status;
+          const loc = r.headers.get("location");
+          if (status >= 300 && status < 400 && loc) {
+            redirectHops++;
+            current = new URL(loc, current).toString();
+            continue;
+          }
+          finalUrl = current;
+          break;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (_err) {
+      // fail-soft, keep redirectHops = 0
+    }
+
+    const finalDomain = (() => {
+      try { return new URL(finalUrl).hostname.replace(/^www\./, ""); } catch { return domain; }
+    })();
+    const crossDomain = finalDomain !== domain;
+
+    const problems: string[] = [];
+    let impact = 10;
+    let status: EvidenceStatus = "pass";
+
+    if (isShortlink) {
+      problems.push("Shortlink hides final destination");
+      impact -= 15;
+      status = "warn";
+    }
+    if (redirectHops >= 2) {
+      problems.push(`${redirectHops} redirect hops before final page`);
+      impact -= 10;
+      status = "warn";
+    }
+    if (crossDomain && isShortlink === false) {
+      problems.push(`Redirects to different domain (${finalDomain})`);
+      impact -= 10;
+      status = "warn";
+    }
+    if (suspiciousParams.length > 0) {
+      problems.push(`Suspicious query params: ${suspiciousParams.slice(0, 3).join(", ")}`);
+      impact -= 12;
+      status = "warn";
+    }
+    if (baitMatches.length >= 2) {
+      problems.push(`Phishing bait path patterns: ${baitMatches.slice(0, 2).join(", ")}`);
+      impact -= 20;
+      status = "fail";
+    } else if (baitMatches.length === 1) {
+      problems.push(`Bait-style path keyword: ${baitMatches[0]}`);
+      impact -= 8;
+      if (status === "pass") status = "warn";
+    }
+
+    const summary = problems.length === 0
+      ? "Link structure looks clean, no redirect or bait patterns"
+      : problems[0];
+
+    return finalize({
+      provider: "link_intel",
+      provider_label: "Link Intel",
+      status,
+      summary,
+      weight: 25,
+      score_impact: impact,
+      payload: {
+        is_shortlink: isShortlink,
+        redirect_hops: redirectHops,
+        final_url: finalUrl,
+        final_domain: finalDomain,
+        cross_domain: crossDomain,
+        suspicious_params: suspiciousParams,
+        bait_matches: baitMatches,
+        problems,
+        verdict: status === "fail" ? "danger" : status === "warn" ? "warning" : "clear",
+        critical: baitMatches.length >= 2,
+      },
+    });
+  } catch (err) {
+    console.error("[scan-core] LinkIntel failed (fail-soft):", err);
+    return finalize({
+      provider: "link_intel",
+      provider_label: "Link Intel",
+      status: "unknown",
+      summary: "Link structure check unavailable",
+      weight: 25,
+      score_impact: 0,
+      payload: { error: "unavailable", verdict: "unknown" },
+    });
+  }
+}
+
+async function runDomainIntel(url: string): Promise<EvidenceCard> {
+  try {
+    const parsed = new URL(url);
+    const domain = parsed.hostname.replace(/^www\./, "");
+    const registrable = getRegistrable(domain);
+    const tld = getTld(domain);
+
+    const isPunycode = domain.includes("xn--");
+    const suspiciousTld = SUSPICIOUS_TLDS.has(tld);
+    const lookalike = detectLookalikeBrand(domain);
+    const subdomainCount = domain.split(".").length - registrable.split(".").length;
+    const digitRatio = (registrable.match(/[0-9]/g) || []).length / Math.max(registrable.length, 1);
+    const hyphenCount = (registrable.match(/-/g) || []).length;
+
+    let ageDays: number | null = null;
+    try {
+      const rdapResp = await fetch(`https://rdap.org/domain/${encodeURIComponent(registrable)}`, {
+        signal: AbortSignal.timeout(4000),
+        headers: { Accept: "application/rdap+json" },
+      });
+      if (rdapResp.ok) {
+        const rdap = await rdapResp.json();
+        const events: Array<{ eventAction: string; eventDate: string }> = rdap?.events || [];
+        const reg = events.find((e) => e.eventAction === "registration");
+        if (reg?.eventDate) {
+          const d = new Date(reg.eventDate).getTime();
+          if (!Number.isNaN(d)) ageDays = Math.floor((Date.now() - d) / 86400000);
+        }
+      }
+    } catch (_err) {
+      // fail-soft
+    }
+
+    const problems: string[] = [];
+    let impact = 10;
+    let status: EvidenceStatus = "pass";
+    let critical = false;
+
+    if (lookalike) {
+      problems.push(`Domain looks like "${lookalike.brand}" (possible impersonation)`);
+      impact -= 35;
+      status = "fail";
+      critical = true;
+    }
+    if (isPunycode) {
+      problems.push("Punycode / IDN homograph detected");
+      impact -= 25;
+      if (status !== "fail") status = "fail";
+      critical = true;
+    }
+    if (suspiciousTld) {
+      problems.push(`Suspicious TLD: .${tld}`);
+      impact -= 12;
+      if (status === "pass") status = "warn";
+    }
+    if (ageDays !== null && ageDays < 30) {
+      problems.push(`Very new domain (registered ${ageDays} day${ageDays === 1 ? "" : "s"} ago)`);
+      impact -= 20;
+      status = "fail";
+    } else if (ageDays !== null && ageDays < 180) {
+      problems.push(`Young domain (${ageDays} days old)`);
+      impact -= 8;
+      if (status === "pass") status = "warn";
+    } else if (ageDays !== null && ageDays >= 365 * 2) {
+      impact += 5;
+    }
+    if (subdomainCount >= 3) {
+      problems.push(`Excessive subdomains (${subdomainCount})`);
+      impact -= 8;
+      if (status === "pass") status = "warn";
+    }
+    if (digitRatio > 0.3 && registrable.length > 6) {
+      problems.push("Digit-heavy domain");
+      impact -= 6;
+      if (status === "pass") status = "warn";
+    }
+    if (hyphenCount >= 3) {
+      problems.push("Unusual hyphen pattern in domain");
+      impact -= 5;
+      if (status === "pass") status = "warn";
+    }
+
+    const summary = problems.length === 0
+      ? (ageDays !== null
+          ? `Established domain (${Math.floor(ageDays / 30)} mo), no lookalike or TLD red flags`
+          : "Domain structure clean, no lookalike or suspicious TLD")
+      : problems[0];
+
+    return finalize({
+      provider: "domain_intel",
+      provider_label: "Domain Intel",
+      status,
+      summary,
+      weight: 30,
+      score_impact: impact,
+      payload: {
+        domain,
+        registrable,
+        tld,
+        punycode: isPunycode,
+        suspicious_tld: suspiciousTld,
+        lookalike_brand: lookalike?.brand ?? null,
+        lookalike_distance: lookalike?.distance ?? null,
+        age_days: ageDays,
+        subdomain_count: subdomainCount,
+        digit_ratio: Number(digitRatio.toFixed(2)),
+        hyphen_count: hyphenCount,
+        problems,
+        verdict: status === "fail" ? "danger" : status === "warn" ? "warning" : "clear",
+        critical,
+      },
+    });
+  } catch (err) {
+    console.error("[scan-core] DomainIntel failed (fail-soft):", err);
+    return finalize({
+      provider: "domain_intel",
+      provider_label: "Domain Intel",
+      status: "unknown",
+      summary: "Domain check unavailable",
+      weight: 30,
+      score_impact: 0,
+      payload: { error: "unavailable", verdict: "unknown" },
+    });
   }
 }
 
@@ -222,27 +565,52 @@ function computeVerdict(evidence: EvidenceCard[]): {
   reason_codes: string[];
 } {
   const reason_codes: string[] = [];
-  const hasFail = evidence.some((e) => e.status === "fail");
-  const hasWarn = evidence.some((e) => e.status === "warn");
-  const allUnknown = evidence.every((e) => e.status === "unknown");
+  const BASE_SCORE = 70;
+  let score = BASE_SCORE;
+  let criticalFail = false;
+  let unknownCount = 0;
+  let knownCount = 0;
 
   for (const e of evidence) {
+    score += e.score_impact;
+    if (e.status === "unknown") unknownCount++;
+    else knownCount++;
+
     if (e.status === "fail") reason_codes.push(`${e.provider}:fail`);
     else if (e.status === "warn") reason_codes.push(`${e.provider}:warn`);
     else if (e.status === "unknown") reason_codes.push(`${e.provider}:unknown`);
+
+    if (e.status === "fail" && (e.payload as { critical?: boolean })?.critical === true) {
+      criticalFail = true;
+    }
   }
 
-  if (hasFail) {
-    return { badge: "HIGH_RISK", score: 10, trust_score: 0.0, verdict: "danger", reason_codes };
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  const evidenceComplete = knownCount >= 3;
+  const allUnknown = knownCount === 0 && unknownCount > 0;
+
+  let badge: Badge;
+  let verdict: "clear" | "warning" | "danger" | "unknown";
+
+  if (criticalFail || score < 50) {
+    badge = "HIGH_RISK";
+    verdict = "danger";
+  } else if (score >= 80 && evidenceComplete) {
+    badge = "VERIFIED";
+    verdict = "clear";
+  } else {
+    badge = "UNVERIFIED";
+    verdict = allUnknown ? "unknown" : "warning";
   }
-  if (hasWarn) {
-    return { badge: "UNVERIFIED", score: 45, trust_score: 0.3, verdict: "warning", reason_codes };
-  }
-  if (allUnknown) {
-    return { badge: "UNVERIFIED", score: 50, trust_score: 0.5, verdict: "unknown", reason_codes: ["providers_unavailable"] };
-  }
+
+  if (allUnknown) reason_codes.push("providers_unavailable");
+  if (!evidenceComplete && badge !== "HIGH_RISK") reason_codes.push("evidence_incomplete");
   if (reason_codes.length === 0) reason_codes.push("all_clear");
-  return { badge: "VERIFIED", score: 85, trust_score: 0.9, verdict: "clear", reason_codes };
+
+  const trust_score = Math.round((score / 100) * 100) / 100;
+
+  return { badge, score, trust_score, verdict, reason_codes };
 }
 
 export interface RunScanOptions {
@@ -256,16 +624,22 @@ export async function runScanCore(rawUrl: string, opts: RunScanOptions = {}): Pr
   const normalized_url = normalizeUrl(rawUrl);
   const domain = extractDomain(normalized_url);
 
-  const [webriskCard, urlhausCard] = await Promise.all([
+  const [webriskCard, urlhausCard, linkIntelCard, domainIntelCard] = await Promise.all([
     runWebRisk(normalized_url),
     runUrlhaus(normalized_url),
+    runLinkIntel(normalized_url),
+    runDomainIntel(normalized_url),
   ]);
 
-  const evidence: EvidenceCard[] = [webriskCard, urlhausCard];
+  const evidence: EvidenceCard[] = [webriskCard, urlhausCard, linkIntelCard, domainIntelCard];
   const { badge, score, trust_score, verdict, reason_codes } = computeVerdict(evidence);
 
   const top_red_flags = evidence
     .filter((e) => e.status === "fail" || e.status === "warn")
+    .sort((a, b) => {
+      const order = { fail: 0, warn: 1, unknown: 2, pass: 3 } as const;
+      return order[a.status] - order[b.status];
+    })
     .slice(0, 3)
     .map((e) => e.summary);
 
@@ -309,7 +683,7 @@ export async function runScanCore(rawUrl: string, opts: RunScanOptions = {}): Pr
           reasons: reason_codes,
           metrics: { trust_score, verdict },
           score_breakdown: { evidence: evidence.map((e) => ({ provider: e.provider, status: e.status, weight: e.weight, score_impact: e.score_impact })) },
-          scan_version: "2.0",
+          scan_version: "3.0",
         })
         .select("id")
         .single();
@@ -319,18 +693,25 @@ export async function runScanCore(rawUrl: string, opts: RunScanOptions = {}): Pr
       } else if (inserted?.id) {
         (result as ScanCoreResult & { scan_id?: string }).scan_id = inserted.id;
 
+        const providerMap: Record<string, string> = {
+          google_webrisk: "google_safe_browsing",
+          urlhaus: "link_intel",
+          link_intel: "link_intel",
+          domain_intel: "link_intel",
+        };
+
         const evidenceRows = evidence.map((e) => ({
           scan_id: inserted.id,
-          provider: e.provider === "google_webrisk" ? "google_safe_browsing" : "link_intel",
+          provider: providerMap[e.provider] || "link_intel",
           provider_label: e.provider_label,
           status: e.status,
           summary: e.summary,
           weight: e.weight,
           score_impact: e.score_impact,
           payload: e.payload,
-          card_title: e.provider_label,
-          card_status: e.status,
-          card_payload: { summary: e.summary, ...e.payload },
+          card_title: e.card_title,
+          card_status: e.card_status,
+          card_payload: e.card_payload,
         }));
 
         const { error: evErr } = await opts.supabase
@@ -390,7 +771,7 @@ export async function getOrRunScan(rawUrl: string, supabase: any, deviceId?: str
         domain: v.domain || extractDomain(normalized_url),
         badge,
         score,
-        trust_score: typeof v.trust_score === "number" ? v.trust_score : 0.5,
+        trust_score: typeof v.trust_score === "number" ? v.trust_score : score / 100,
         verdict: v.verdict || "unknown",
         reason_codes: Array.isArray(v.reason_codes) ? v.reason_codes : [],
         providers: {},
