@@ -78,45 +78,18 @@ export default function LandingScreen() {
       }
 
       const fullUrl = parsed.toString();
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: fullUrl }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        console.log('[Landing] /api/scan not ok:', response.status, data);
+      const result = await createShareLink(fullUrl);
+      if (!result || !result.token) {
+        console.log('[Landing] createShareLink returned no token');
         return null;
       }
 
-      const b64 = typeof btoa !== 'undefined'
-        ? btoa(unescape(encodeURIComponent(fullUrl)))
-        : Buffer.from(fullUrl, 'utf-8').toString('base64');
-      const token = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-      const payload = {
-        url: fullUrl,
-        domain: data.domain ?? parsed.hostname,
-        isHttps: data.isHttps ?? (parsed.protocol === 'https:'),
-        score: data.score,
-        verdict: data.verdict,
-        reasons: data.reasons,
-        createdAt: Date.now(),
-      };
-
-      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-        try {
-          window.localStorage.setItem(`scan:${token}`, JSON.stringify(payload));
-        } catch (e) {
-          console.log('[Landing] localStorage set failed:', e);
-        }
-      }
-
-      return { token };
+      return { token: result.token };
     },
     onSuccess: (data) => {
       if (!data) {
         console.log('[Landing] Scan stopped safely');
+        setError('Unable to scan. Check the URL and try again.');
         return;
       }
       console.log('[Landing] Scan success, token:', data.token);
