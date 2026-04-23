@@ -76,11 +76,14 @@ const VERDICT_MAP: Record<Verdict, VerdictConfig> = {
 };
 
 function computeVerdict(data: WalletShareData): Verdict {
+  const score = data.score ?? 50;
   const badge = data.badge;
+
   if (badge === 'HIGH_RISK') return 'STOP';
   if (badge === 'VERIFIED') return 'OK';
   if (badge === 'UNVERIFIED') return 'CAUTION';
-  const score = data.score ?? 50;
+
+  // fallback solo si badge falta
   if (score < 50) return 'STOP';
   if (score >= 80) return 'OK';
   return 'CAUTION';

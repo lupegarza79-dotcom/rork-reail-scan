@@ -19,17 +19,19 @@ export interface EvidenceCard {
 export interface WalletShareData {
   token: string;
   original_url: string;
-  normalized_url?: string | null;
+  normalized_url: string;
   domain: string;
-  badge: BadgeType | null;
-  score: number | null;
+  badge: BadgeType;
+  score: number;
   top_red_flags: string[];
   next_action: string;
-  scan_id: string | null;
+  scan_id: string;
   evidence: EvidenceCard[];
   created_at: string;
   expires_at: string;
   view_count: number;
+  cache_hit?: boolean;
+  needs_full_scan?: false;
 }
 
 export interface CreateShareResponse {
