@@ -43,10 +43,10 @@ export interface CreateShareResponse {
   score: number | null;
   top_red_flags: string[];
   next_action: string;
-  evidence?: EvidenceCard[];
+  evidence: EvidenceCard[];
   expires_at: string;
-  scan_id?: string | null;
-  cache_hit?: boolean;
+  scan_id: string;
+  cache_hit: boolean;
   needs_full_scan: boolean;
 }
 
