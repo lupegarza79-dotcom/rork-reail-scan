@@ -1,21 +1,18 @@
 // @ts-nocheck
 // Supabase Edge Function: wallet-share
-// POST /wallet-share - Create a shareable link with scan verdict
+// POST /wallet-share - Create an evidence-backed shareable link
 // GET /wallet-share?token=<token> - Resolve a share link
-// Returns: { ok, share_url, token, badge, score, top_red_flags, next_action }
+// Returns evidence-guaranteed: badge, score, top_red_flags, next_action never null.
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, x-device-id, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
+import { corsHeaders, corsResponse, jsonResponse } from "../_shared/cors.ts";
+import { getClientIp, getDeviceId, getProjectUrl, getServiceRoleKey } from "../_shared/auth.ts";
+import { getOrRunScan, normalizeUrl, extractDomain } from "../_shared/scan-core.ts";
 
 const ENDPOINT = "wallet-share";
 const WALLET_SHARE_TTL_DAYS = parseInt(Deno.env.get("WALLET_SHARE_TTL_DAYS") || "8", 10);
-const DEFAULT_EXPIRY_HOURS = WALLET_SHARE_TTL_DAYS * 24; // 8 days = 192 hours
+const DEFAULT_EXPIRY_HOURS = WALLET_SHARE_TTL_DAYS * 24;
 const TOKEN_LENGTH = 12;
 const VERBOSE = Deno.env.get("VERBOSE_LOGGING") === "true";
 
@@ -30,108 +27,72 @@ function generateToken(length: number): string {
   return result;
 }
 
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url.split("/")[0].replace(/^www\./, "");
-  }
-}
-
-function getClientIp(req: Request): string {
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return req.headers.get("cf-connecting-ip")
-    || req.headers.get("x-real-ip")
-    || "unknown";
-}
-
-function computeNextAction(badge: string | null, score: number | null, redFlags: string[]): string {
-  if (!badge || score === null) {
-    return "Review carefully before paying.";
-  }
-  
-  if (badge === "HIGH_RISK" || score < 40) {
-    return "Do NOT click this link. It shows signs of a scam or phishing attempt.";
-  }
-  
-  if (badge === "UNVERIFIED" || score < 70) {
-    if (redFlags.length > 0) {
-      return "Proceed with caution. Verify the sender and avoid entering personal info.";
-    }
-    return "This link couldn't be fully verified. Double-check the source before proceeding.";
-  }
-  
-  return "This link appears safe, but always verify unexpected requests for personal info.";
-}
-
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return corsResponse();
 
   const reqUrl = new URL(req.url);
 
   if (reqUrl.searchParams.get("health") !== null) {
-    return new Response(JSON.stringify({
+    return jsonResponse({
       ok: true,
       endpoint: ENDPOINT,
       details: {
         secrets: {
-          PROJECT_URL: !!Deno.env.get("PROJECT_URL"),
-          SERVICE_ROLE_KEY: !!Deno.env.get("SERVICE_ROLE_KEY"),
+          PROJECT_URL: !!getProjectUrl(),
+          SERVICE_ROLE_KEY: !!getServiceRoleKey(),
+          GOOGLE_WEBRISK_API_KEY: !!Deno.env.get("GOOGLE_WEBRISK_API_KEY"),
         },
         verbose: VERBOSE,
       },
       timestamp: new Date().toISOString(),
-    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    });
   }
 
-  const supabaseUrl = Deno.env.get("PROJECT_URL")!;
-  const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const deviceId = req.headers.get("x-device-id") || "anonymous";
+  const supabaseUrl = getProjectUrl();
+  const supabaseServiceKey = getServiceRoleKey();
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const deviceId = getDeviceId(req);
   const ip = getClientIp(req);
 
   try {
     if (req.method === "GET") {
       const token = reqUrl.searchParams.get("token");
       if (!token) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           ok: false,
           error_code: "invalid_input",
           message: "token query parameter is required",
           endpoint: ENDPOINT,
-        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 400);
       }
 
       const { data: shareLink, error } = await supabase
         .from("wallet_share_links")
         .select("*")
         .eq("token", token)
-        .single();
+        .maybeSingle();
 
       if (error || !shareLink) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           ok: false,
           error_code: "not_found",
-          message: "Share link not found or expired",
+          message: "Share link not found",
           endpoint: ENDPOINT,
-        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 404);
       }
 
       if (new Date(shareLink.expires_at) < new Date()) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           ok: false,
           error_code: "expired",
           message: "This share link has expired",
           endpoint: ENDPOINT,
-        }), { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 410);
       }
 
       await supabase.rpc("increment_share_view", { p_token: token });
 
-      return new Response(JSON.stringify({
+      return jsonResponse({
         ok: true,
         token: shareLink.token,
         original_url: shareLink.original_url,
@@ -144,80 +105,37 @@ serve(async (req: Request) => {
         created_at: shareLink.created_at,
         expires_at: shareLink.expires_at,
         view_count: (shareLink.view_count || 0) + 1,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        needs_full_scan: false,
+      });
     }
 
     if (req.method === "POST") {
-      const body = await req.json();
-      const targetUrl = body.url;
-      const expiryHours = body.expiry_hours || DEFAULT_EXPIRY_HOURS;
+      const body = await req.json().catch(() => ({}));
+      const targetUrl: string | undefined = body?.url;
+      const expiryHours = body?.expiry_hours || DEFAULT_EXPIRY_HOURS;
 
       if (!targetUrl) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           ok: false,
           error_code: "invalid_input",
           message: "url is required in request body",
           endpoint: ENDPOINT,
-        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 400);
       }
 
-      const domain = extractDomain(targetUrl);
-      let badge: string | null = null;
-      let score: number | null = null;
-      let topRedFlags: string[] = [];
-      let scanId: string | null = null;
+      const normalized = normalizeUrl(targetUrl);
+      const domain = extractDomain(normalized);
 
-      const cacheKey = `scan:${targetUrl}`;
-      const { data: cached } = await supabase
-        .from("scan_cache")
-        .select("value, expires_at")
-        .eq("key", cacheKey)
-        .single();
+      if (VERBOSE) console.log("[wallet-share] POST normalize:", { input: targetUrl, normalized, domain });
 
-      if (cached && new Date(cached.expires_at) > new Date()) {
-        const v = cached.value;
-        badge = v.badge;
-        score = v.score;
-        topRedFlags = (v.evidence || [])
-          .filter((e: unknown) => (e as { status: string }).status === "fail" || (e as { status: string }).status === "warn")
-          .slice(0, 3)
-          .map((e: unknown) => (e as { summary: string }).summary);
-        if (VERBOSE) console.log("[wallet-share] Cache HIT for:", targetUrl);
-      } else {
-        const { data: recentScan } = await supabase
-          .from("scan_results")
-          .select("id, badge, score, domain")
-          .eq("domain", domain)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+      const scan = await getOrRunScan(targetUrl, supabase, deviceId);
 
-        if (recentScan) {
-          badge = recentScan.badge;
-          score = recentScan.score;
-          scanId = recentScan.id;
+      const badge = scan.badge;
+      const score = scan.score;
+      const topRedFlags = Array.isArray(scan.top_red_flags) ? scan.top_red_flags : [];
+      const nextAction = scan.next_action;
+      const scanId = (scan as { scan_id?: string }).scan_id ?? null;
 
-          const { data: evidenceRows } = await supabase
-            .from("scan_evidence")
-            .select("card_status, card_payload")
-            .eq("scan_id", recentScan.id);
-
-          topRedFlags = (evidenceRows || [])
-            .filter((r: unknown) => {
-              const row = r as { card_status: string };
-              return row.card_status === "fail" || row.card_status === "warn";
-            })
-            .slice(0, 3)
-            .map((r: unknown) => {
-              const row = r as { card_payload?: { summary?: string } };
-              return row.card_payload?.summary || "Flag detected";
-            });
-
-          if (VERBOSE) console.log("[wallet-share] DB HIT for:", targetUrl);
-        }
-      }
-
-      const nextAction = computeNextAction(badge, score, topRedFlags);
       const token = generateToken(TOKEN_LENGTH);
       const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
@@ -226,6 +144,7 @@ serve(async (req: Request) => {
         .insert({
           token,
           original_url: targetUrl,
+          normalized_url: normalized,
           domain,
           scan_id: scanId,
           badge,
@@ -239,38 +158,40 @@ serve(async (req: Request) => {
 
       if (insertError) {
         console.error("[wallet-share] Insert error:", insertError);
-        return new Response(JSON.stringify({
+        return jsonResponse({
           ok: false,
           error_code: "db_error",
           message: "Failed to create share link",
           endpoint: ENDPOINT,
-        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 500);
       }
 
       const shareUrl = `/s/${token}`;
 
-      return new Response(JSON.stringify({
+      return jsonResponse({
         ok: true,
         token,
         share_url: shareUrl,
         original_url: targetUrl,
+        normalized_url: normalized,
         domain,
         badge,
         score,
         top_red_flags: topRedFlags,
         next_action: nextAction,
         expires_at: expiresAt.toISOString(),
-        needs_full_scan: badge === null,
-      }), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        scan_id: scanId,
+        cache_hit: scan.cache_hit,
+        needs_full_scan: false,
+      }, 201);
     }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       ok: false,
       error_code: "method_not_allowed",
       message: "Method not allowed",
       endpoint: ENDPOINT,
-    }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
+    }, 405);
   } catch (error) {
     console.error("[wallet-share] Error:", error);
     const errObj = error instanceof Error ? error : new Error(String(error));
