@@ -68,7 +68,9 @@ export default function LandingScreen() {
     mutationFn: async (inputUrl: string) => {
       const trimmed = inputUrl.trim();
       console.log('[Landing] Scanning:', trimmed);
+
       const normalized = normalizeUrl(trimmed);
+
       let parsed: URL;
       try {
         parsed = new URL(normalized);
@@ -78,24 +80,27 @@ export default function LandingScreen() {
       }
 
       const fullUrl = parsed.toString();
-      const result = await createShareLink(fullUrl);
-      if (!result || !result.token) {
-        console.log('[Landing] createShareLink returned no token');
-        return null;
+
+      const data = await createShareLink(fullUrl);
+
+      if (!data?.token) {
+        throw new Error('wallet-share failed');
       }
 
-      return { token: result.token };
+      return { token: data.token };
     },
+
     onSuccess: (data) => {
       if (!data) {
         console.log('[Landing] Scan stopped safely');
-        setError('Unable to scan. Check the URL and try again.');
         return;
       }
+
       console.log('[Landing] Scan success, token:', data.token);
       setError('');
       router.push(`/s/${data.token}`);
     },
+
     onError: (err) => {
       console.log('[Landing] Scan error:', err);
       setError('Unable to scan. Check the URL and try again.');
