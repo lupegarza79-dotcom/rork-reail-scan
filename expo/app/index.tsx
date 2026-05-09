@@ -12,9 +12,10 @@ import {
   StatusBar,
   ScrollView,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, AlertCircle, ArrowRight, ShieldCheck, Zap, LockOpen } from 'lucide-react-native';
+import { Search, AlertCircle, X } from 'lucide-react-native';
 import { useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors, { Fonts } from '@/constants/colors';
@@ -25,6 +26,17 @@ import SocialProofLine from '@/components/SocialProofLine';
 import ScanningView from '@/components/ScanningView';
 
 const MIN_SCAN_MS = 2500;
+
+const PALETTE = {
+  bg: '#000000',
+  bgInput: '#2C2C2E',
+  bgCard: '#1C1C1E',
+  border: '#2C2C2E',
+  blue: '#3A7BFF',
+  text: '#FFFFFF',
+  textSub: '#8E8E93',
+  textDim: '#48484A',
+} as const;
 
 const SAMPLES: { label: string; url: string }[] = [
   { label: 'github.com', url: 'https://github.com' },
@@ -50,12 +62,32 @@ function normalizeUrl(text: string): string {
   return `https://${trimmed}`;
 }
 
+function ShieldIcon({ size = 56, color = PALETTE.blue }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 52 52" fill="none">
+      <Path
+        d="M26 4L8 11v13c0 11.1 7.7 21.5 18 24 10.3-2.5 18-12.9 18-24V11L26 4z"
+        fill={color}
+        fillOpacity={0.12}
+      />
+      <Path
+        d="M26 4L8 11v13c0 11.1 7.7 21.5 18 24 10.3-2.5 18-12.9 18-24V11L26 4z"
+        stroke={color}
+        strokeWidth={2.5}
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
 export default function LandingScreen() {
   const router = useRouter();
   const [url, setUrl] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanningUrl, setScanningUrl] = useState<string>('');
+  const [focused, setFocused] = useState<boolean>(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const scanMutation = useMutation<CreateShareResponse | null, Error, string>({
@@ -124,7 +156,7 @@ export default function LandingScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.97, duration: 80, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
       ]).start();
 
@@ -141,6 +173,7 @@ export default function LandingScreen() {
   );
 
   const isLoading = scanMutation.isPending;
+  const canScan = url.trim().length > 0;
 
   if (scanning) {
     return (
@@ -166,35 +199,32 @@ export default function LandingScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.hero}>
-            <View style={styles.brandRow}>
-              <View style={styles.brandRing}>
-                <View style={styles.brandDot} />
-              </View>
-              <Text style={styles.brand}>REAiL</Text>
-              <View style={styles.brandBadge}>
-                <Text style={styles.brandBadgeText}>BETA</Text>
-              </View>
-            </View>
-
-            <Text style={styles.title}>Scan any link before you pay.</Text>
-
-            <Text style={styles.tagline}>
-              Before you click, pay, or trust — REAiL it.
-            </Text>
+            <ShieldIcon size={56} color={PALETTE.blue} />
+            <Text style={styles.brand}>REAiL</Text>
+            <Text style={styles.brandSub}>Wallet Shield</Text>
+            <Text style={styles.tagline}>Scan any link before you pay.</Text>
           </View>
 
           <View style={styles.inputArea}>
-            <View style={[styles.inputRow, error ? styles.inputRowError : null]}>
-              <Search size={18} color={Colors.textTertiary} />
+            <View
+              style={[
+                styles.inputRow,
+                focused && styles.inputRowFocused,
+                error ? styles.inputRowError : null,
+              ]}
+            >
+              <Search size={16} color={PALETTE.textSub} strokeWidth={2} />
               <TextInput
                 style={styles.input}
-                placeholder="Paste link or text"
-                placeholderTextColor={Colors.textTertiary}
+                placeholder="Paste link"
+                placeholderTextColor={PALETTE.textSub}
                 value={url}
                 onChangeText={(t) => {
                   setUrl(t);
                   if (error) setError('');
                 }}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
                 onSubmitEditing={() => handleScan()}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -203,50 +233,45 @@ export default function LandingScreen() {
                 editable={!isLoading}
                 testID="url-input"
               />
+              {url.length > 0 && !isLoading ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setUrl('');
+                    setError('');
+                  }}
+                  hitSlop={10}
+                  testID="clear-input"
+                >
+                  <X size={16} color={PALETTE.textSub} strokeWidth={2} />
+                </TouchableOpacity>
+              ) : null}
             </View>
 
             {error ? (
               <View style={styles.errorRow}>
-                <AlertCircle size={14} color={Colors.unverified} />
+                <AlertCircle size={13} color={Colors.unverified} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
 
             <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
               <TouchableOpacity
-                style={[styles.scanBtn, isLoading && styles.scanBtnDisabled]}
+                style={[
+                  styles.scanBtn,
+                  (!canScan || isLoading) && styles.scanBtnDisabled,
+                ]}
                 onPress={() => handleScan()}
                 activeOpacity={0.85}
                 disabled={isLoading}
                 testID="scan-btn"
               >
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#09090B" />
+                  <ActivityIndicator size="small" color={PALETTE.text} />
                 ) : (
-                  <>
-                    <Text style={styles.scanBtnText}>REAiL it</Text>
-                    <ArrowRight size={18} color="#09090B" strokeWidth={2.5} />
-                  </>
+                  <Text style={styles.scanBtnText}>Scan</Text>
                 )}
               </TouchableOpacity>
             </Animated.View>
-
-            <View style={styles.trustPills}>
-              <View style={styles.trustPill}>
-                <LockOpen size={11} color={Colors.textSecondary} strokeWidth={2.2} />
-                <Text style={styles.trustPillText}>No login</Text>
-              </View>
-              <View style={styles.trustPillDot} />
-              <View style={styles.trustPill}>
-                <ShieldCheck size={11} color={Colors.textSecondary} strokeWidth={2.2} />
-                <Text style={styles.trustPillText}>Free scan</Text>
-              </View>
-              <View style={styles.trustPillDot} />
-              <View style={styles.trustPill}>
-                <Zap size={11} color={Colors.textSecondary} strokeWidth={2.2} />
-                <Text style={styles.trustPillText}>Instant analysis</Text>
-              </View>
-            </View>
           </View>
 
           <View style={styles.samplesWrap}>
@@ -267,6 +292,9 @@ export default function LandingScreen() {
           </View>
 
           <View style={styles.footer}>
+            <Text style={styles.footerLine}>
+              REAiL Wallet Shield · No login. Just paste.
+            </Text>
             <SocialProofLine />
           </View>
         </ScrollView>
@@ -278,7 +306,7 @@ export default function LandingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: PALETTE.bg,
   },
   safeArea: {
     flex: 1,
@@ -290,91 +318,53 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center' as const,
     paddingHorizontal: 24,
-    paddingBottom: 24,
+    paddingBottom: 32,
     paddingTop: 8,
   },
   hero: {
     alignItems: 'center' as const,
     marginBottom: 28,
-    gap: 14,
-  },
-  brandRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    gap: 8,
-  },
-  brandRing: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    backgroundColor: 'rgba(16,185,129,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.45)',
-  },
-  brandDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: Colors.verified,
   },
   brand: {
     fontFamily: Fonts.sansBold,
-    fontSize: 15,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    letterSpacing: 0.5,
-  },
-  brandBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    marginLeft: 2,
-  },
-  brandBadgeText: {
-    fontFamily: Fonts.monoBold,
-    fontSize: 9,
-    color: Colors.textSecondary,
-    letterSpacing: 1.2,
-  },
-  title: {
-    fontFamily: Fonts.sansBold,
     fontSize: 32,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    letterSpacing: -1.2,
-    lineHeight: 38,
-    textAlign: 'center' as const,
+    fontWeight: '800' as const,
+    color: PALETTE.text,
+    letterSpacing: -0.5,
+    marginTop: 16,
+  },
+  brandSub: {
+    fontFamily: Fonts.sansMedium,
+    fontSize: 16,
+    fontWeight: '500' as const,
+    color: PALETTE.blue,
     marginTop: 4,
-    paddingHorizontal: 8,
+    letterSpacing: -0.1,
   },
   tagline: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: PALETTE.textSub,
     textAlign: 'center' as const,
-    marginTop: 2,
-    paddingHorizontal: 16,
-    lineHeight: 22,
+    marginTop: 8,
     letterSpacing: -0.1,
   },
   inputArea: {
-    gap: 14,
+    gap: 12,
   },
   inputRow: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    backgroundColor: 'rgba(20,20,28,0.92)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 18,
-    height: 64,
-    gap: 12,
+    backgroundColor: PALETTE.bgInput,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    paddingHorizontal: 16,
+    height: 54,
+    gap: 10,
+  },
+  inputRowFocused: {
+    borderColor: PALETTE.blue,
   },
   inputRowError: {
     borderColor: Colors.unverified,
@@ -382,10 +372,11 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontFamily: Fonts.sans,
-    fontSize: 16,
-    color: Colors.text,
+    fontSize: 15,
+    color: PALETTE.text,
     letterSpacing: -0.2,
     height: '100%' as unknown as number,
+    padding: 0,
   },
   errorRow: {
     flexDirection: 'row' as const,
@@ -400,51 +391,25 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   scanBtn: {
-    flexDirection: 'row' as const,
-    height: 58,
-    borderRadius: 16,
+    height: 54,
+    borderRadius: 14,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  trustPills: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    gap: 10,
+    backgroundColor: PALETTE.blue,
     marginTop: 4,
-    flexWrap: 'wrap' as const,
-  },
-  trustPill: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    gap: 5,
-  },
-  trustPillText: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: Colors.textSecondary,
-    letterSpacing: -0.1,
-  },
-  trustPillDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: Colors.textTertiary,
   },
   scanBtnDisabled: {
-    opacity: 0.7,
+    opacity: 0.5,
   },
   scanBtnText: {
     fontFamily: Fonts.sansBold,
     fontSize: 16,
     fontWeight: '700' as const,
-    color: '#09090B',
+    color: PALETTE.text,
     letterSpacing: -0.2,
   },
   samplesWrap: {
-    marginTop: 26,
+    marginTop: 28,
     alignItems: 'center' as const,
     gap: 10,
   },
@@ -452,7 +417,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.monoBold,
     fontSize: 10,
     letterSpacing: 2,
-    color: Colors.textTertiary,
+    color: PALETTE.textDim,
   },
   samplesRow: {
     flexDirection: 'row' as const,
@@ -463,20 +428,27 @@ const styles = StyleSheet.create({
   sampleChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: PALETTE.bgCard,
+    borderColor: PALETTE.border,
     borderWidth: 1,
     borderRadius: 999,
   },
   sampleText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: PALETTE.textSub,
     letterSpacing: -0.1,
   },
   footer: {
     alignItems: 'center' as const,
-    marginTop: 22,
-    gap: 6,
+    marginTop: 28,
+    gap: 10,
+  },
+  footerLine: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: PALETTE.textSub,
+    letterSpacing: -0.1,
+    textAlign: 'center' as const,
   },
 });
