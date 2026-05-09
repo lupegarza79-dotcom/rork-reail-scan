@@ -2,10 +2,15 @@ import Constants from "expo-constants";
 import { getDeviceId } from "./deviceId";
 import type { BadgeType } from "@/types/scan";
 
+const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ??
+  (Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_URL as string) ??
+  "";
+
 export const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL as string) ??
-  "https://favpzctusdjnnoyoabrz.supabase.co/functions/v1";
+  (SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1` : "https://favpzctusdjnnoyoabrz.supabase.co/functions/v1");
 
 const ANON_KEY =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
