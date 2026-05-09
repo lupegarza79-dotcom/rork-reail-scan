@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, AlertCircle, Sparkles, ArrowRight } from 'lucide-react-native';
+import { Search, AlertCircle, Sparkles, ArrowRight, ShieldCheck, Zap, LockOpen } from 'lucide-react-native';
 import { useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors, { Fonts } from '@/constants/colors';
@@ -168,7 +168,7 @@ export default function LandingScreen() {
           <View style={styles.hero}>
             <View style={styles.kicker}>
               <Sparkles size={11} color={Colors.info} strokeWidth={2.5} />
-              <Text style={styles.kickerText}>PRE-TRANSACTION TRUST ENGINE</Text>
+              <Text style={styles.kickerText}>SCAN ANY LINK BEFORE YOU PAY</Text>
             </View>
             <Text style={styles.title}>REAiL</Text>
             <Text style={styles.tagline}>
@@ -223,6 +223,23 @@ export default function LandingScreen() {
                 )}
               </TouchableOpacity>
             </Animated.View>
+
+            <View style={styles.trustPills}>
+              <View style={styles.trustPill}>
+                <LockOpen size={11} color={Colors.textSecondary} strokeWidth={2.2} />
+                <Text style={styles.trustPillText}>No login</Text>
+              </View>
+              <View style={styles.trustPillDot} />
+              <View style={styles.trustPill}>
+                <ShieldCheck size={11} color={Colors.textSecondary} strokeWidth={2.2} />
+                <Text style={styles.trustPillText}>Free scan</Text>
+              </View>
+              <View style={styles.trustPillDot} />
+              <View style={styles.trustPill}>
+                <Zap size={11} color={Colors.textSecondary} strokeWidth={2.2} />
+                <Text style={styles.trustPillText}>Instant analysis</Text>
+              </View>
+            </View>
           </View>
 
           <View style={styles.samplesWrap}>
@@ -244,7 +261,6 @@ export default function LandingScreen() {
 
           <View style={styles.footer}>
             <SocialProofLine />
-            <Text style={styles.footerText}>No login. Just paste.</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -267,13 +283,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center' as const,
     paddingHorizontal: 24,
-    paddingBottom: 32,
-    paddingTop: 16,
+    paddingBottom: 24,
+    paddingTop: 8,
   },
   hero: {
     alignItems: 'center' as const,
-    marginBottom: 32,
-    gap: 10,
+    marginBottom: 22,
+    gap: 8,
   },
   kicker: {
     flexDirection: 'row' as const,
@@ -294,18 +310,18 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: Fonts.serif,
-    fontSize: 64,
+    fontSize: 56,
     color: Colors.text,
     letterSpacing: -1,
-    lineHeight: 68,
-    marginTop: 4,
+    lineHeight: 60,
+    marginTop: 2,
   },
   tagline: {
     fontFamily: Fonts.mono,
     fontSize: 14,
     color: Colors.textSecondary,
     textAlign: 'center' as const,
-    marginTop: 4,
+    marginTop: 2,
     paddingHorizontal: 24,
     lineHeight: 20,
   },
@@ -320,12 +336,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
-    paddingHorizontal: 14,
-    height: 56,
-    gap: 10,
+    paddingHorizontal: 16,
+    height: 64,
+    gap: 12,
   },
   inputRowError: {
     borderColor: Colors.unverified,
@@ -333,7 +349,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontFamily: Fonts.mono,
-    fontSize: 14,
+    fontSize: 16,
     color: Colors.text,
     height: '100%' as unknown as number,
   },
@@ -351,11 +367,36 @@ const styles = StyleSheet.create({
   scanBtn: {
     flexDirection: 'row' as const,
     backgroundColor: Colors.text,
-    height: 56,
-    borderRadius: 12,
+    height: 60,
+    borderRadius: 14,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     gap: 8,
+  },
+  trustPills: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 10,
+    marginTop: 4,
+    flexWrap: 'wrap' as const,
+  },
+  trustPill: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+  },
+  trustPillText: {
+    fontFamily: Fonts.mono,
+    fontSize: 11,
+    color: Colors.textSecondary,
+    letterSpacing: 0.3,
+  },
+  trustPillDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: Colors.textTertiary,
   },
   scanBtnDisabled: {
     opacity: 0.7,
@@ -367,9 +408,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   samplesWrap: {
-    marginTop: 24,
+    marginTop: 18,
     alignItems: 'center' as const,
-    gap: 10,
+    gap: 8,
   },
   samplesLabel: {
     fontFamily: Fonts.monoBold,
@@ -398,7 +439,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center' as const,
-    marginTop: 32,
+    marginTop: 22,
     gap: 6,
   },
   footerText: {
