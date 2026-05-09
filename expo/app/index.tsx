@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, AlertCircle, Sparkles, ArrowRight, ShieldCheck, Zap, LockOpen } from 'lucide-react-native';
+import { Search, AlertCircle, ArrowRight, ShieldCheck, Zap, LockOpen } from 'lucide-react-native';
 import { useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import Colors, { Fonts } from '@/constants/colors';
@@ -166,13 +166,13 @@ export default function LandingScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.hero}>
-            <View style={styles.kicker}>
-              <Sparkles size={11} color={Colors.info} strokeWidth={2.5} />
-              <Text style={styles.kickerText}>SCAN ANY LINK BEFORE YOU PAY</Text>
+            <View style={styles.brandRow}>
+              <View style={styles.brandDot} />
+              <Text style={styles.brand}>REAiL</Text>
             </View>
-            <Text style={styles.title}>REAiL</Text>
+            <Text style={styles.title}>Scan any link{`\n`}before you pay.</Text>
             <Text style={styles.tagline}>
-              Before you click, pay, or trust — <Text style={styles.taglineEm}>REAiL it.</Text>
+              Before you click, pay, or trust — REAiL it.
             </Text>
           </View>
 
@@ -288,69 +288,75 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: 'center' as const,
-    marginBottom: 22,
-    gap: 8,
+    marginBottom: 28,
+    gap: 14,
   },
-  kicker: {
+  brandRow: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    gap: 6,
-    backgroundColor: Colors.infoBg,
-    borderColor: Colors.info,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    gap: 8,
   },
-  kickerText: {
-    fontFamily: Fonts.monoBold,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: Colors.info,
+  brandDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: Colors.verified,
+  },
+  brand: {
+    fontFamily: Fonts.sansBold,
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    letterSpacing: -0.2,
   },
   title: {
-    fontFamily: Fonts.serif,
-    fontSize: 56,
+    fontFamily: Fonts.sansBold,
+    fontSize: 36,
+    fontWeight: '600' as const,
     color: Colors.text,
-    letterSpacing: -1,
-    lineHeight: 60,
-    marginTop: 2,
+    letterSpacing: -1.2,
+    lineHeight: 42,
+    textAlign: 'center' as const,
+    marginTop: 4,
   },
   tagline: {
-    fontFamily: Fonts.mono,
-    fontSize: 14,
+    fontFamily: Fonts.sans,
+    fontSize: 15,
     color: Colors.textSecondary,
     textAlign: 'center' as const,
     marginTop: 2,
-    paddingHorizontal: 24,
-    lineHeight: 20,
-  },
-  taglineEm: {
-    color: Colors.text,
-    fontFamily: Fonts.monoBold,
+    paddingHorizontal: 16,
+    lineHeight: 22,
+    letterSpacing: -0.1,
   },
   inputArea: {
-    gap: 12,
+    gap: 14,
   },
   inputRow: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
-    paddingHorizontal: 16,
-    height: 64,
+    paddingHorizontal: 18,
+    height: 68,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   inputRowError: {
     borderColor: Colors.unverified,
   },
   input: {
     flex: 1,
-    fontFamily: Fonts.mono,
+    fontFamily: Fonts.sans,
     fontSize: 16,
     color: Colors.text,
+    letterSpacing: -0.2,
     height: '100%' as unknown as number,
   },
   errorRow: {
@@ -360,18 +366,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   errorText: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
     color: Colors.unverified,
+    letterSpacing: -0.1,
   },
   scanBtn: {
     flexDirection: 'row' as const,
     backgroundColor: Colors.text,
     height: 60,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     gap: 8,
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 4 },
   },
   trustPills: {
     flexDirection: 'row' as const,
@@ -387,10 +398,10 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   trustPillText: {
-    fontFamily: Fonts.mono,
-    fontSize: 11,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
     color: Colors.textSecondary,
-    letterSpacing: 0.3,
+    letterSpacing: -0.1,
   },
   trustPillDot: {
     width: 3,
@@ -402,15 +413,16 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   scanBtnText: {
-    fontFamily: Fonts.monoBold,
-    fontSize: 15,
+    fontFamily: Fonts.sansBold,
+    fontSize: 16,
+    fontWeight: '600' as const,
     color: '#09090B',
-    letterSpacing: 1,
+    letterSpacing: -0.2,
   },
   samplesWrap: {
-    marginTop: 18,
+    marginTop: 22,
     alignItems: 'center' as const,
-    gap: 8,
+    gap: 10,
   },
   samplesLabel: {
     fontFamily: Fonts.monoBold,
@@ -433,9 +445,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   sampleText: {
-    fontFamily: Fonts.mono,
-    fontSize: 12,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
     color: Colors.textSecondary,
+    letterSpacing: -0.1,
   },
   footer: {
     alignItems: 'center' as const,

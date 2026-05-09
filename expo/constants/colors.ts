@@ -3,16 +3,16 @@
  * Dark, premium, fintech/security feel.
  */
 const Colors = {
-  background: '#09090B',
-  backgroundSecondary: '#101013',
-  backgroundTertiary: '#16161B',
-  surface: '#0E0E11',
-  surfaceElevated: '#17171C',
-  text: '#F5F5F7',
-  textSecondary: '#A1A1AA',
-  textTertiary: '#52525B',
-  border: '#1F1F25',
-  cardBorder: '#26262E',
+  background: '#0B0B0F',
+  backgroundSecondary: '#111116',
+  backgroundTertiary: '#17171D',
+  surface: '#13131A',
+  surfaceElevated: '#1B1B23',
+  text: '#FAFAFA',
+  textSecondary: '#B4B4BD',
+  textTertiary: '#6B6B75',
+  border: '#26262E',
+  cardBorder: '#2E2E38',
 
   card: '#0E0E11',
 
@@ -39,12 +39,28 @@ const Colors = {
   },
 };
 
+import { Platform } from 'react-native';
+
+const SANS = Platform.select({
+  ios: 'System',
+  android: 'sans-serif',
+  default: 'System',
+}) as string;
+const SANS_MEDIUM = Platform.select({
+  ios: 'System',
+  android: 'sans-serif-medium',
+  default: 'System',
+}) as string;
+
 export const Fonts = {
   mono: 'IBMPlexMono_400Regular',
   monoMedium: 'IBMPlexMono_500Medium',
   monoBold: 'IBMPlexMono_700Bold',
   serif: 'InstrumentSerif_400Regular',
   serifItalic: 'InstrumentSerif_400Regular_Italic',
+  sans: SANS,
+  sansMedium: SANS_MEDIUM,
+  sansBold: SANS_MEDIUM,
 } as const;
 
 export default Colors;
