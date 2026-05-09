@@ -11,14 +11,12 @@ import {
   Animated,
   StatusBar,
   ScrollView,
-  Easing,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Search, AlertCircle, ArrowRight, ShieldCheck, Zap, LockOpen } from 'lucide-react-native';
 import { useMutation } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import Colors, { Fonts } from '@/constants/colors';
 import { createShareLink, CreateShareResponse } from '@/utils/walletShare';
 import { getRefToken } from '@/utils/tracking';
@@ -59,30 +57,6 @@ export default function LandingScreen() {
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanningUrl, setScanningUrl] = useState<string>('');
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const breathe = useRef(new Animated.Value(0)).current;
-  const orbA = useRef(new Animated.Value(0)).current;
-  const orbB = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = (val: Animated.Value, duration: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(val, { toValue: 1, duration, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
-          Animated.timing(val, { toValue: 0, duration, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
-        ])
-      );
-    const a = loop(breathe, 2400);
-    const b = loop(orbA, 6000);
-    const c = loop(orbB, 7500);
-    a.start();
-    b.start();
-    c.start();
-    return () => {
-      a.stop();
-      b.stop();
-      c.stop();
-    };
-  }, [breathe, orbA, orbB]);
 
   const scanMutation = useMutation<CreateShareResponse | null, Error, string>({
     mutationFn: async (inputUrl: string) => {
@@ -179,53 +153,9 @@ export default function LandingScreen() {
     );
   }
 
-  const breatheOpacity = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
-  const breatheScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] });
-  const orbATranslate = orbA.interpolate({ inputRange: [0, 1], outputRange: [-20, 20] });
-  const orbBTranslate = orbB.interpolate({ inputRange: [0, 1], outputRange: [25, -15] });
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-
-      {/* Cinematic ambient atmosphere */}
-      <View style={styles.atmosphere} pointerEvents="none">
-        <LinearGradient
-          colors={[ '#0B0B0F', '#0E0F18', '#0B0B0F' ]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        />
-        <Animated.View
-          style={[
-            styles.orb,
-            styles.orbTop,
-            { transform: [{ translateY: orbATranslate }], opacity: 0.55 },
-          ]}
-        >
-          <LinearGradient
-            colors={[ 'rgba(99,102,241,0.55)', 'rgba(99,102,241,0)' ]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          />
-        </Animated.View>
-        <Animated.View
-          style={[
-            styles.orb,
-            styles.orbBottom,
-            { transform: [{ translateY: orbBTranslate }], opacity: 0.4 },
-          ]}
-        >
-          <LinearGradient
-            colors={[ 'rgba(16,185,129,0.4)', 'rgba(16,185,129,0)' ]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          />
-        </Animated.View>
-        <View style={styles.grain} />
-      </View>
 
       <SafeAreaView style={styles.safeArea}>
         <StatsHeader />
@@ -246,10 +176,7 @@ export default function LandingScreen() {
               </View>
             </View>
 
-            <Text style={styles.title}>
-              Scan any link{`\n`}
-              <Text style={styles.titleAccent}>before you pay.</Text>
-            </Text>
+            <Text style={styles.title}>Scan any link before you pay.</Text>
 
             <Text style={styles.tagline}>
               Before you click, pay, or trust — REAiL it.
@@ -257,42 +184,25 @@ export default function LandingScreen() {
           </View>
 
           <View style={styles.inputArea}>
-            <View style={styles.inputWrap}>
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.inputGlow,
-                  { opacity: breatheOpacity, transform: [{ scale: breatheScale }] },
-                ]}
-              >
-                <LinearGradient
-                  colors={[ 'rgba(99,102,241,0.55)', 'rgba(16,185,129,0.35)' ]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </Animated.View>
-
-              <View style={[styles.inputRow, error ? styles.inputRowError : null]}>
-                <Search size={18} color={Colors.textTertiary} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Paste link or text"
-                  placeholderTextColor={Colors.textTertiary}
-                  value={url}
-                  onChangeText={(t) => {
-                    setUrl(t);
-                    if (error) setError('');
-                  }}
-                  onSubmitEditing={() => handleScan()}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  returnKeyType="go"
-                  editable={!isLoading}
-                  testID="url-input"
-                />
-              </View>
+            <View style={[styles.inputRow, error ? styles.inputRowError : null]}>
+              <Search size={18} color={Colors.textTertiary} />
+              <TextInput
+                style={styles.input}
+                placeholder="Paste link or text"
+                placeholderTextColor={Colors.textTertiary}
+                value={url}
+                onChangeText={(t) => {
+                  setUrl(t);
+                  if (error) setError('');
+                }}
+                onSubmitEditing={() => handleScan()}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                returnKeyType="go"
+                editable={!isLoading}
+                testID="url-input"
+              />
             </View>
 
             {error ? (
@@ -310,12 +220,6 @@ export default function LandingScreen() {
                 disabled={isLoading}
                 testID="scan-btn"
               >
-                <LinearGradient
-                  colors={[ '#FFFFFF', '#E6E6EE' ]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
                 {isLoading ? (
                   <ActivityIndicator size="small" color="#09090B" />
                 ) : (
@@ -379,29 +283,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  atmosphere: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden' as const,
-  },
-  orb: {
-    position: 'absolute' as const,
-    width: 520,
-    height: 520,
-    borderRadius: 260,
-    overflow: 'hidden' as const,
-  },
-  orbTop: {
-    top: -200,
-    left: -120,
-  },
-  orbBottom: {
-    bottom: -240,
-    right: -160,
-  },
-  grain: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(11,11,15,0.35)',
-  },
   scroll: {
     flex: 1,
   },
@@ -414,8 +295,8 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: 'center' as const,
-    marginBottom: 32,
-    gap: 16,
+    marginBottom: 28,
+    gap: 14,
   },
   brandRow: {
     flexDirection: 'row' as const,
@@ -437,10 +318,6 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
     backgroundColor: Colors.verified,
-    shadowColor: Colors.verified,
-    shadowOpacity: 0.9,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
   },
   brand: {
     fontFamily: Fonts.sansBold,
@@ -453,33 +330,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    backgroundColor: 'rgba(99,102,241,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(99,102,241,0.35)',
+    borderColor: 'rgba(255,255,255,0.12)',
     marginLeft: 2,
   },
   brandBadgeText: {
     fontFamily: Fonts.monoBold,
     fontSize: 9,
-    color: '#A5B4FC',
+    color: Colors.textSecondary,
     letterSpacing: 1.2,
   },
   title: {
     fontFamily: Fonts.sansBold,
-    fontSize: 40,
+    fontSize: 32,
     fontWeight: '700' as const,
     color: Colors.text,
-    letterSpacing: -1.6,
-    lineHeight: 46,
+    letterSpacing: -1.2,
+    lineHeight: 38,
     textAlign: 'center' as const,
-    marginTop: 6,
-  },
-  titleAccent: {
-    color: '#C7CCFF',
-    fontStyle: 'italic' as const,
-    fontFamily: Fonts.serifItalic,
-    fontWeight: '400' as const,
-    letterSpacing: -0.8,
+    marginTop: 4,
+    paddingHorizontal: 8,
   },
   tagline: {
     fontFamily: Fonts.sans,
@@ -494,18 +365,6 @@ const styles = StyleSheet.create({
   inputArea: {
     gap: 14,
   },
-  inputWrap: {
-    position: 'relative' as const,
-  },
-  inputGlow: {
-    position: 'absolute' as const,
-    top: -6,
-    left: -6,
-    right: -6,
-    bottom: -6,
-    borderRadius: 22,
-    overflow: 'hidden' as const,
-  },
   inputRow: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
@@ -514,13 +373,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 18,
-    height: 68,
+    height: 64,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
   },
   inputRowError: {
     borderColor: Colors.unverified,
@@ -547,17 +401,12 @@ const styles = StyleSheet.create({
   },
   scanBtn: {
     flexDirection: 'row' as const,
-    height: 60,
+    height: 58,
     borderRadius: 16,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     gap: 8,
-    overflow: 'hidden' as const,
-    shadowColor: '#FFFFFF',
-    shadowOpacity: 0.18,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    backgroundColor: '#FFFFFF',
   },
   trustPills: {
     flexDirection: 'row' as const,
